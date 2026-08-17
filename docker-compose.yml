@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────
+#  AI Car Dealership — Local Development Stack
+#  Services: FastAPI · PostgreSQL · Redis · Qdrant · pgAdmin
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # ── 1. FastAPI Backend ──────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dealership_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    volumes:
+      - ./backend:/app                          # hot-reload: code changes reflect instantly
+      - ./data:/app/data                        # sample CSVs and quarantine folder
+      - fastembed_cache:/opt/fastembed_cache    # ~130 MB model, survives container recreate
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── 2. PostgreSQL ───────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: dealership_db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── 3. Redis ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: dealership_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # ── 4. Qdrant (Vector Database) ─────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: dealership_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"    # HTTP API  → http://localhost:6333/dashboard
+      - "6334:6334"    # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # ── 5. pgAdmin (DB GUI — optional but helpful) ──────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: dealership_pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"     # → http://localhost:5050
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - db
+
+# ── Named Volumes ───────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  pgadmin_data:
+  fastembed_cache:

@@ -1,0 +1,26 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Node (frontend — Phase 4)
+node_modules/
+.next/
+
+# Data
+data/quarantine/*.json
+data/quarantine/*.csv
+
+# OS
+.DS_Store
+Thumbs.db
