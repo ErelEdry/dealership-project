@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+/* ── Night-Drive HMI palette ───────────────────────────────────────────
+   Warm = the car (amber). Cool = the machine reading it (cyan).
+   Everything else stays monochrome instrument ink. */
+:root {
+  --ink: #0a0e12; /* dash glass */
+  --panel: #12181f; /* raised panel */
+  --panel-2: #171f27; /* inset */
+  --line: #232e38; /* hairline ticks + dividers */
+  --haze: #7c8a97; /* muted telemetry labels */
+  --lume: #eaf0f1; /* backlit primary text */
+
+  --amber: #f4a83a; /* physical signal: price, reserved */
+  --cyan: #46d9e6; /* AI signal: match score, semantic */
+  --go: #57d98a; /* tell-tale: available */
+  --info: #5aa9e0; /* tell-tale: workshop */
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-panel: var(--panel);
+  --color-panel2: var(--panel-2);
+  --color-line: var(--line);
+  --color-haze: var(--haze);
+  --color-lume: var(--lume);
+  --color-amber: var(--amber);
+  --color-cyan: var(--cyan);
+  --color-go: var(--go);
+  --color-info: var(--info);
+
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--ink);
+  color: var(--lume);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ambient dash backlight: cyan up top, a faint amber wash to one side. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      1100px 560px at 50% -12%,
+      rgba(70, 217, 230, 0.07),
+      transparent 60%
+    ),
+    radial-gradient(
+      820px 480px at 92% 4%,
+      rgba(244, 168, 58, 0.045),
+      transparent 60%
+    );
+}
+/* A single whisper-faint instrument grid, fading out below the fold. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  opacity: 0.35;
+  mask-image: radial-gradient(120% 100% at 50% 0%, #000 10%, transparent 70%);
+}
+
+/* Accessible focus for a dark UI. */
+*:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: rgba(70, 217, 230, 0.25);
+  color: var(--lume);
+}
+
+/* Console cursor blink. */
+@keyframes hmi-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.hmi-cursor {
+  animation: hmi-blink 1.1s steps(1) infinite;
+}
+
+/* Match gauge: the needle sweeps up on mount. */
+.gauge-arc {
+  transition: stroke-dashoffset 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .hmi-cursor {
+    animation: none;
+  }
+  .gauge-arc {
+    transition: none;
+  }
+  .hmi-skeleton::after {
+    animation: none;
+  }
+}
+
+/* Skeleton shimmer — a backlight sweeping across a loading tile. */
+@keyframes hmi-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.hmi-skeleton {
+  position: relative;
+  overflow: hidden;
+}
+.hmi-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(234, 240, 241, 0.06),
+    transparent
+  );
+  animation: hmi-shimmer 1.5s infinite;
+}
+
+/* Dual-range slider: two transparent range inputs overlaid on one track. */
+.hmi-range {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.hmi-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: var(--cyan);
+  border: 2px solid var(--ink);
+  box-shadow: 0 0 6px rgba(70, 217, 230, 0.6);
+  cursor: pointer;
+}
+.hmi-range::-moz-range-thumb {
+  pointer-events: auto;
+  height: 16px;
+  width: 16px;
+  border: 2px solid var(--ink);
+  border-radius: 9999px;
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(70, 217, 230, 0.6);
+  cursor: pointer;
+}
+.hmi-range::-webkit-slider-runnable-track,
+.hmi-range::-moz-range-track {
+  background: transparent;
+}

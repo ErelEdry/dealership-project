@@ -34,6 +34,23 @@ services:
         condition: service_started
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
+  # ── 1b. Frontend (Next.js) ──────────────────────────────────
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle — the browser reaches the API on the host.
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: dealership_web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Server-side rendering runs in-container and reaches the API by service name.
+      - API_URL_INTERNAL=http://api:8000
+    depends_on:
+      - api
+
   # ── 2. PostgreSQL ───────────────────────────────────────────
   db:
     image: postgres:16-alpine

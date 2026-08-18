@@ -25,6 +25,7 @@ from tenacity import (
 )
 
 from app.core.config import settings
+from app.core.segments import PROMPT_SEGMENTS
 from app.schemas.inventory import AIEnrichmentOutput, RawVehicle
 
 log = structlog.get_logger()
@@ -33,16 +34,19 @@ log = structlog.get_logger()
 _client = Groq(api_key=settings.groq_api_key)
 
 # ── Enrichment prompt ────────────────────────────────────────
-_SYSTEM_PROMPT = """Automotive data specialist. Enrich vehicle specs as JSON.
+_SEGMENT_LIST = ", ".join(PROMPT_SEGMENTS)
+
+_SYSTEM_PROMPT = f"""Automotive data specialist. Enrich vehicle specs as JSON.
 Rules: Never invent features. Only use provided data. Tags must come from:
 Family-friendly, Fuel-efficient, Sporty, Luxury, City-ready, Off-road capable,
-Eco-friendly, Long-range, Budget-friendly, Premium, Practical, Performance"""
+Eco-friendly, Long-range, Budget-friendly, Premium, Practical, Performance
+ai_segment MUST be exactly one of: {_SEGMENT_LIST}"""
 
 _USER_TEMPLATE = """Specs:
 {specs}
 
 Return JSON only:
-{{"ai_lifestyle_tags":[1-4 approved tags],"ai_segment":"e.g. Compact SUV","ai_summary":"2-3 factual sentences for a buyer","ai_selling_points":[2-5 points from specs only],"ai_comparable_models":[2-3 real models],"ai_confidence":0.0-1.0}}"""
+{{"ai_lifestyle_tags":[1-4 approved tags],"ai_segment":"one approved segment","ai_summary":"2-3 factual sentences for a buyer","ai_selling_points":[2-5 points from specs only],"ai_comparable_models":[2-3 real models],"ai_confidence":0.0-1.0}}"""
 
 
 def _build_specs_string(vehicle: RawVehicle) -> str:
@@ -70,11 +74,12 @@ def _build_specs_string(vehicle: RawVehicle) -> str:
 )
 async def enrich_vehicle(vehicle: RawVehicle) -> Optional[AIEnrichmentOutput]:
     """
-    Call Groq to enrich a single vehicle.
-    Returns AIEnrichmentOutput on success, None on unrecoverable failure.
+    Call Groq to enrich a single vehicle. Returns AIEnrichmentOutput on success.
 
-    Retries up to 3 times with exponential backoff.
-    Rate-limit sleep is handled by the pipeline caller.
+    Retries up to 3 times with exponential backoff; if all attempts fail it
+    raises tenacity.RetryError wrapping the last error (e.g. a Groq 429). The
+    pipeline caller catches this — a quota error stops the run cleanly, any
+    other error skips just that vehicle.
     """
     specs  = _build_specs_string(vehicle)
     prompt = _USER_TEMPLATE.format(specs=specs)

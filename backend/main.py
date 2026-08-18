@@ -7,6 +7,7 @@ Docs: http://localhost:8000/docs
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes import bookings, search, vehicles
 from app.core.config import settings
 
 app = FastAPI(
@@ -32,7 +33,6 @@ async def health():
     return {"status": "ok", "environment": settings.environment}
 
 # ── Routers (add more as phases progress) ────────────────────
-# from app.api.routes import inventory, search, bookings
-# app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
-# app.include_router(search.router,    prefix="/api/search",    tags=["Search"])
-# app.include_router(bookings.router,  prefix="/api/bookings",  tags=["Bookings"])
+app.include_router(search.router,   prefix="/api/search",   tags=["Search"])
+app.include_router(vehicles.router, prefix="/api/vehicles", tags=["Vehicles"])
+app.include_router(bookings.router, prefix="/api/bookings", tags=["Bookings"])

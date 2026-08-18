@@ -13,14 +13,27 @@ venv/
 # Alembic
 alembic/versions/__pycache__/
 
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+
 # Node (frontend — Phase 4)
 node_modules/
 .next/
+next-env.d.ts
+*.tsbuildinfo
 
 # Data
 data/quarantine/*.json
 data/quarantine/*.csv
+data/sample/*.bak
 
-# OS
+# Logs
+logs/
+*.log
+
+# OS / editors
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/

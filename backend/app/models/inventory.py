@@ -2,14 +2,18 @@
 SQLAlchemy ORM models for the inventory pipeline.
 """
 
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, Integer,
-    JSON, String, Text, text
+    JSON, String, Text
 )
 from sqlalchemy.orm import DeclarativeBase
+
+
+def utcnow() -> datetime:
+    """Timezone-aware UTC now. Replaces the deprecated datetime.utcnow()."""
+    return datetime.now(timezone.utc)
 
 
 class Base(DeclarativeBase):
@@ -77,8 +81,8 @@ class VehicleInventory(Base):
     needs_review = Column(Boolean,  default=False, index=True)
     enriched_at  = Column(DateTime, nullable=True)
     source_file  = Column(String(255), nullable=True)
-    ingested_at  = Column(DateTime, default=datetime.utcnow)
-    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    ingested_at  = Column(DateTime, default=utcnow)
+    updated_at   = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class ValidationErrorLog(Base):
@@ -93,4 +97,4 @@ class ValidationErrorLog(Base):
     error_detail = Column(Text,       nullable=False)
     source_file  = Column(String(255), nullable=True)
     row_number   = Column(Integer,    nullable=True)
-    created_at   = Column(DateTime,   default=datetime.utcnow)
+    created_at   = Column(DateTime,   default=utcnow)

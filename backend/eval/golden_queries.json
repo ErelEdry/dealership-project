@@ -1,0 +1,23 @@
+{
+  "_note": "Relevance is defined by an attribute predicate per query (a scalable proxy for human judgment): a result counts as relevant if its ai_segment / body_type / fuel_type is in the allowed set AND (when given) its price is within the stated percentile band. All conditions are AND-ed. Evaluated over available stock only, matching the search default.",
+  "queries": [
+    {"query": "cheap fuel efficient city car for a student", "segments": ["City Car", "Supermini"], "price_pctile": 0.5},
+    {"query": "compact hatchback for the city", "bodies": ["hatchback"]},
+    {"query": "spacious family SUV for road trips", "bodies": ["suv"]},
+    {"query": "electric SUV with long range", "bodies": ["suv"], "fuels": ["electric"]},
+    {"query": "reliable pickup truck for work", "bodies": ["ute"]},
+    {"query": "luxury executive sedan", "segments": ["Executive Sedan", "Luxury Car"]},
+    {"query": "sporty coupe", "segments": ["Coupe", "Sports Car", "Hot Hatch"]},
+    {"query": "fast sports car", "segments": ["Sports Car"]},
+    {"query": "estate wagon with a big boot", "bodies": ["wagon"]},
+    {"query": "hybrid family sedan", "bodies": ["sedan"], "fuels": ["hybrid"]},
+    {"query": "affordable electric car", "fuels": ["electric"], "price_pctile": 0.5},
+    {"query": "large premium SUV", "segments": ["Mid-Size SUV", "Full-Size SUV"]},
+    {"query": "petrol pickup truck", "bodies": ["ute"], "fuels": ["petrol"]},
+    {"query": "electric hatchback", "bodies": ["hatchback"], "fuels": ["electric"]},
+    {"query": "hot hatch", "segments": ["Hot Hatch"]},
+    {"query": "compact suv for commuting", "segments": ["Compact SUV"]},
+    {"query": "cheap petrol city car", "segments": ["City Car", "Supermini"], "fuels": ["petrol"], "price_pctile": 0.5},
+    {"query": "executive electric sedan", "segments": ["Executive Sedan"], "fuels": ["electric"]}
+  ]
+}

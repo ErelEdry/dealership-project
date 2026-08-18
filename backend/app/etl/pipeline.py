@@ -13,21 +13,25 @@ Usage:
 
     # Re-run from scratch (re-enrich everything)
     docker compose exec api python -m app.etl.pipeline --force
+
+    # Resume a partial re-run: only vehicles enriched before a date
+    docker compose exec api python -m app.etl.pipeline --reenrich-before 2026-08-17
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import csv
 import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
+from groq import RateLimitError
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
+from tenacity import RetryError
 
 from app.core.config import settings
 from app.etl.embedder import embed_vehicle, ensure_collection
@@ -36,6 +40,17 @@ from app.etl.ingestor import read_csv, validate_row
 from app.schemas.inventory import EnrichedVehicle
 
 log = structlog.get_logger()
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    """True if the error is (or wraps) a Groq 429 rate-limit / quota error.
+
+    Enrichment is wrapped by tenacity, so a persistent 429 surfaces as a
+    RetryError around the original RateLimitError — unwrap one level.
+    """
+    if isinstance(exc, RetryError) and exc.last_attempt is not None:
+        exc = exc.last_attempt.exception() or exc
+    return isinstance(exc, RateLimitError)
 
 # ── Sync DB engine for pipeline CLI ─────────────────────────
 _sync_url = settings.database_url.replace(
@@ -57,6 +72,22 @@ def vehicle_exists(session: Session, vin: str) -> bool:
         {"vin": vin}
     ).fetchone()
     return row is not None
+
+
+def needs_reenrich(session: Session, vin: str, cutoff: str) -> bool:
+    """True if the vehicle should be re-enriched under --reenrich-before.
+
+    Returns True when the row is new, never enriched, or was last enriched
+    *before* `cutoff` (a date/timestamp string). Rows already enriched on/after
+    the cutoff are left alone — this is what lets a partial re-run resume
+    without redoing rows that are already on the new model.
+    """
+    row = session.execute(
+        text("SELECT 1 FROM vehicle_inventory "
+             "WHERE vin = :vin AND enriched_at IS NOT NULL AND enriched_at >= :cutoff"),
+        {"vin": vin, "cutoff": cutoff}
+    ).fetchone()
+    return row is None
 
 
 def upsert_vehicle(session: Session, vehicle: EnrichedVehicle, point_id: str | None) -> None:
@@ -139,13 +170,20 @@ def upsert_vehicle(session: Session, vehicle: EnrichedVehicle, point_id: str | N
 
 # ── Main pipeline ────────────────────────────────────────────
 
-async def run_pipeline(csv_path: str, limit: int | None = None, force: bool = False) -> None:
+async def run_pipeline(
+    csv_path: str,
+    limit: int | None = None,
+    force: bool = False,
+    reenrich_before: str | None = None,
+) -> None:
     """
     Full enrichment pipeline.
 
-    csv_path : path to the inventory CSV
-    limit    : process only the first N valid vehicles (None = all)
-    force    : re-enrich even vehicles that already have enriched_at set
+    csv_path        : path to the inventory CSV
+    limit           : process only the first N valid vehicles (None = all)
+    force           : re-enrich even vehicles that already have enriched_at set
+    reenrich_before : re-enrich only vehicles last enriched before this date
+                      (skips newer ones); ignored when force is set
     """
     log.info("pipeline_start", csv=csv_path, limit=limit, force=force)
 
@@ -154,6 +192,7 @@ async def run_pipeline(csv_path: str, limit: int | None = None, force: bool = Fa
 
     source_file = Path(csv_path).name
     processed = skipped = failed = needs_review_count = 0
+    rate_limited = False
     start_time = time.time()
 
     with Session(_engine) as session:
@@ -166,16 +205,37 @@ async def run_pipeline(csv_path: str, limit: int | None = None, force: bool = Fa
                 failed += 1
                 continue
 
-            # ── 2. Skip already-enriched vehicles (unless --force) ──
-            if not force and vehicle_exists(session, vehicle.vin):
-                skipped += 1
-                continue
+            # ── 2. Decide whether to (re)enrich this vehicle ──
+            if not force:
+                if reenrich_before:
+                    if not needs_reenrich(session, vehicle.vin, reenrich_before):
+                        skipped += 1
+                        continue
+                elif vehicle_exists(session, vehicle.vin):
+                    skipped += 1
+                    continue
 
-            # ── 3. Enrich with Gemini ────────────────────────
+            # ── 3. Enrich with Groq ──────────────────────────
             print(f"[{processed+1}{'/' + str(limit) if limit else ''}] "
                   f"Enriching {vehicle.year} {vehicle.make} {vehicle.model}...", end=" ", flush=True)
 
-            enrichment = await enrich_vehicle(vehicle)
+            try:
+                enrichment = await enrich_vehicle(vehicle)
+            except Exception as e:
+                # A quota/rate-limit 429 will fail every subsequent call too —
+                # stop cleanly so progress so far is kept and the run is resumable.
+                if _is_rate_limit(e):
+                    print("✗ rate limit / daily quota reached")
+                    log.warning("pipeline_rate_limited", vin=vehicle.vin, error=str(e))
+                    rate_limited = True
+                    break
+                # Any other error: skip this one vehicle and keep going.
+                print("✗ enrichment failed")
+                log.error("enrichment_skipped", vin=vehicle.vin, error=str(e))
+                failed += 1
+                await asyncio.sleep(ENRICH_DELAY)
+                continue
+
             if enrichment is None:
                 print("✗ enrichment failed")
                 failed += 1
@@ -220,20 +280,26 @@ async def run_pipeline(csv_path: str, limit: int | None = None, force: bool = Fa
             await asyncio.sleep(ENRICH_DELAY)
 
     elapsed = time.time() - start_time
+    header = "Pipeline stopped (rate limit)" if rate_limited else "Pipeline complete"
+    resume_note = (
+        "\n  ⚠ Stopped on Groq quota — re-run the same command later to resume\n"
+        "    (already-enriched vehicles are skipped unless --force)."
+        if rate_limited else ""
+    )
     print(f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Pipeline complete
+  {header}
   Processed   : {processed}
   Skipped     : {skipped} (already enriched)
   Failed      : {failed}
   Needs review: {needs_review_count} (confidence < 0.7)
-  Time        : {elapsed:.1f}s
+  Time        : {elapsed:.1f}s{resume_note}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━""")
 
     log.info("pipeline_complete",
              processed=processed, skipped=skipped,
              failed=failed, needs_review=needs_review_count,
-             elapsed_s=round(elapsed, 1))
+             rate_limited=rate_limited, elapsed_s=round(elapsed, 1))
 
 
 # ── CLI entry point ──────────────────────────────────────────
@@ -252,6 +318,12 @@ if __name__ == "__main__":
         "--force",  action="store_true",
         help="Re-enrich vehicles that are already in the database"
     )
+    parser.add_argument(
+        "--reenrich-before", default=None, metavar="DATE",
+        help="Re-enrich only vehicles last enriched before DATE (e.g. 2026-08-17), "
+             "skipping newer ones. Use to resume a partial re-run without redoing "
+             "already-migrated rows."
+    )
     args = parser.parse_args()
 
-    asyncio.run(run_pipeline(args.csv, args.limit, args.force))
+    asyncio.run(run_pipeline(args.csv, args.limit, args.force, args.reenrich_before))

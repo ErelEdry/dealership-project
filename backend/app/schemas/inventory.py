@@ -11,11 +11,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.core.segments import normalize_segment
+
+
+def utcnow() -> datetime:
+    """Timezone-aware UTC now. Replaces the deprecated datetime.utcnow()."""
+    return datetime.now(timezone.utc)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -106,7 +113,7 @@ class RawVehicle(BaseModel):
 
     # ── Ingestion metadata ────────────────────────────────────
     source_file:    Optional[str]     = None
-    ingested_at:    datetime          = Field(default_factory=datetime.utcnow)
+    ingested_at:    datetime          = Field(default_factory=utcnow)
 
     # ── Validators ────────────────────────────────────────────
 
@@ -200,6 +207,12 @@ class AIEnrichmentOutput(BaseModel):
     def non_empty_strings(cls, v: list[str]) -> list[str]:
         return [s.strip() for s in v if s.strip()]
 
+    @field_validator("ai_segment")
+    @classmethod
+    def canonicalize_segment(cls, v: str) -> str:
+        """Snap free-text segment onto the approved facet vocabulary."""
+        return normalize_segment(v)
+
 
 # ─────────────────────────────────────────────────────────────
 # ENRICHED VEHICLE  (RawVehicle + AIEnrichmentOutput + metadata)
@@ -286,4 +299,4 @@ class ValidationError(BaseModel):
     error_detail: str
     source_file:  Optional[str] = None
     row_number:   Optional[int] = None
-    created_at:   datetime      = Field(default_factory=datetime.utcnow)
+    created_at:   datetime      = Field(default_factory=utcnow)

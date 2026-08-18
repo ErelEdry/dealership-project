@@ -76,10 +76,27 @@ def _get_embedding(text: str) -> list[float]:
     """
     Generate a 768-dim embedding vector locally using FastEmbed.
     BAAI/bge-base-en-v1.5 is optimised for semantic search / retrieval.
+
+    Vehicle documents are embedded as *passages* (plain .embed(), no instruction).
     """
     # embed() returns a generator of numpy arrays
     vectors = list(_embedder.embed([text]))
     return vectors[0].tolist()
+
+
+def embed_query(text: str) -> list[float]:
+    """
+    Embed a search query. bge models are asymmetric: queries get a short
+    retrieval instruction that passages do not, so use FastEmbed's query_embed
+    (documents above were stored with the plain passage embedding).
+    """
+    vectors = list(_embedder.query_embed([text]))
+    return vectors[0].tolist()
+
+
+def get_qdrant() -> QdrantClient:
+    """Expose the shared Qdrant client to the API layer (avoids a second client)."""
+    return _qdrant
 
 
 # ── Qdrant upsert ────────────────────────────────────────────
