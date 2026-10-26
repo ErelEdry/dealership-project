@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.inventory import RawVehicle
+from app.schemas.inventory import EnrichedVehicle, RawVehicle
 
 
 def _row(**kw):
@@ -19,10 +19,24 @@ class TestCoercion:
     def test_vin_is_stripped_and_uppercased(self):
         assert RawVehicle(**_row(vin="  synabc9999999 ")).vin == "SYNABC9999999"
 
-    def test_make_and_model_title_cased(self):
-        v = RawVehicle(**_row(make="toyota", model="corolla cross"))
-        assert v.make == "Toyota"
-        assert v.model == "Corolla Cross"
+    @pytest.mark.parametrize("make,model", [
+        ("BMW", "X5"), ("Toyota", "RAV4"), ("Honda", "CR-V"), ("Mazda", "CX-30"),
+        ("Mercedes-Benz", "GLE"), ("Volvo", "XC60"), ("Ford", "F-150"),
+    ])
+    def test_make_and_model_keep_their_casing(self, make, model):
+        # .title() used to store Bmw / Rav4 / Cr-V / Gle / Xc60.
+        v = RawVehicle(**_row(make=make, model=model))
+        assert (v.make, v.model) == (make, model)
+
+    def test_make_and_model_are_stripped(self):
+        v = RawVehicle(**_row(make="  BMW ", model=" X5  "))
+        assert (v.make, v.model) == ("BMW", "X5")
+
+    def test_qdrant_payload_has_case_insensitive_make_key(self):
+        v = EnrichedVehicle(**RawVehicle(**_row(make="BMW")).model_dump())
+        meta = v.qdrant_metadata()
+        assert meta["make"] == "BMW"
+        assert meta["make_key"] == "bmw"
 
     def test_price_parsed_from_currency_string(self):
         assert RawVehicle(**_row(price="$32,500")).price == 32500.0

@@ -23,6 +23,7 @@ from app.core.database import get_db
 from app.core.query_intent import lex_bonus, parse_price_intent, query_terms
 from app.etl.embedder import embed_query, get_qdrant
 from app.models.inventory import VehicleInventory
+from app.schemas.inventory import make_key
 from app.schemas.search import SearchHit, SearchRequest, SearchResponse, VehicleOut
 
 log = structlog.get_logger()
@@ -47,15 +48,16 @@ _PRICE_W     = 0.5  # weight of the budget/luxury price preference on ordering
 def _build_filter(req: SearchRequest) -> Filter | None:
     """Translate the request's structured filters into a Qdrant payload filter.
 
-    Values are normalised to how the payload stores them: make is title-cased,
-    fuel/body are lower-cased enum values, segment/stock_status are verbatim.
+    Values are normalised to how the payload stores them: make matches the
+    lower-cased `make_key` field (so "bmw" and "BMW" both work), fuel/body are
+    lower-cased enum values, segment/stock_status are verbatim.
     """
     must: list[FieldCondition] = []
 
     if req.stock_status and req.stock_status.lower() != "all":
         must.append(FieldCondition(key="stock_status", match=MatchValue(value=req.stock_status)))
     if req.make:
-        must.append(FieldCondition(key="make", match=MatchValue(value=req.make.strip().title())))
+        must.append(FieldCondition(key="make_key", match=MatchValue(value=make_key(req.make))))
     if req.fuel_type:
         must.append(FieldCondition(key="fuel_type", match=MatchValue(value=req.fuel_type.strip().lower())))
     if req.body_type:

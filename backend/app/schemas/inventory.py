@@ -20,6 +20,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.core.segments import normalize_segment
 
 
+def make_key(make: str) -> str:
+    """Normalised make for case-insensitive matching ("BMW", "bmw" → "bmw")."""
+    return make.strip().lower()
+
+
 def utcnow() -> datetime:
     """Timezone-aware UTC now. Replaces the deprecated datetime.utcnow()."""
     return datetime.now(timezone.utc)
@@ -124,8 +129,10 @@ class RawVehicle(BaseModel):
 
     @field_validator("make", "model")
     @classmethod
-    def title_case(cls, v: str) -> str:
-        return v.strip().title()
+    def strip_name(cls, v: str) -> str:
+        # strip() only: .title() turned BMW → Bmw, RAV4 → Rav4, CR-V → Cr-V.
+        # Matching is case-insensitive at query time instead (make_key / lower()).
+        return v.strip()
 
     @field_validator("price", mode="before")
     @classmethod
@@ -276,6 +283,7 @@ class EnrichedVehicle(RawVehicle):
             "vin":            self.vin,
             "dealer_id":      self.dealer_id,
             "make":           self.make,
+            "make_key":       make_key(self.make),   # case-insensitive filter key
             "model":          self.model,
             "year":           self.year,
             "price":          self.price,

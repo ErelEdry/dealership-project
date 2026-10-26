@@ -50,7 +50,7 @@ Check off each box as the task is completed.
 - **Fix:** If `point_id is None` → don't write (or write without `enriched_at`) and count it as failed; the skip check should also require `vector_id IS NOT NULL`.
 - **Done when:** a simulated embedding failure → the vehicle is picked up again on the next run.
 
-### [ ] 7. `.title()` corrupts make and model names (verified)
+### [x] 7. `.title()` corrupts make and model names (verified)
 - **Files:** `backend/app/schemas/inventory.py` (make/model validator), `routes/search.py`, `routes/vehicles.py`
 - **Problem:** The DB stores `Bmw` instead of `BMW`, and also `Rav4`, `Cr-V`, `Cx-5`, `Cx-30`, `Gle`, `Xc60`, `Xc90`. That's what the UI shows. The filters also apply `.title()` to match, so the bug is "consistent" but the names are wrong.
 - **Fix:** Validator does `strip()` only. Case-insensitive filtering: `func.lower(col) == value.lower()` in Postgres; in Qdrant store an extra normalized payload field (e.g. lowercase `make_key`) and filter on it. An idempotent script that fixes PG + Qdrant from the CSV, in the same style as `scripts/regenerate_prices.py`.
