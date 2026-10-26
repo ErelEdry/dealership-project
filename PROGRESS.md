@@ -459,4 +459,4 @@ containerised SSR detail renders real data, 404/routes 200, no errors. Dev
 hot-reload still works via `docker compose stop web && npm run dev`.
 
 **Phase 4 complete.** Remaining nice-to-haves are forward-looking (neural rerank,
-API integration tests, accounts) — see the README roadmap.
+API integration tests) — see the README roadmap.
