@@ -85,7 +85,7 @@ Check off each box as the task is completed.
 
 ## P2 — Search quality, frontend, infra
 
-### [ ] 12. Lexical bonus matches substrings
+### [x] 12. Lexical bonus matches substrings
 - **File:** `backend/app/core/query_intent.py` (`lex_bonus`)
 - **Problem:** `t in strong` is a substring check, so `ev` matches `chevrolet`.
 - **Fix:** Tokenize make/model/tags and check set membership. Run `eval.run_eval` before and after to make sure the metrics don't drop.

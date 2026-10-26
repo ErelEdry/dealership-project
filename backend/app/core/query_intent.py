@@ -25,12 +25,14 @@ _STOP = {
 }
 
 
+def _tokens(s: str) -> set[str]:
+    """Lower-cased alphanumeric tokens ("CR-V" → {"cr", "v"})."""
+    return set(re.findall(r"[a-z0-9]+", s.lower()))
+
+
 def query_terms(q: str) -> set[str]:
     """Content words from a query, minus stopwords and single non-digit chars."""
-    return {
-        t for t in re.findall(r"[a-z0-9]+", q.lower())
-        if t not in _STOP and (len(t) >= 2 or t.isdigit())
-    }
+    return {t for t in _tokens(q) if t not in _STOP and (len(t) >= 2 or t.isdigit())}
 
 
 def lex_bonus(terms: set[str], v) -> float:
@@ -41,13 +43,15 @@ def lex_bonus(terms: set[str], v) -> float:
     """
     if not terms:
         return 0.0
-    strong = f"{v.make} {v.model}".lower()
-    weak = " ".join([
+    # Whole-token matches only: a substring test let "ev" hit "chevrolet",
+    # "3" hit "mazda3" and "eco" hit "economical".
+    strong = _tokens(f"{v.make} {v.model}")
+    weak = _tokens(" ".join([
         v.ai_segment or "", v.body_type or "", v.fuel_type or "",
         " ".join(v.ai_lifestyle_tags or []),
-    ]).lower()
-    s = sum(1 for t in terms if t in strong)
-    w = sum(1 for t in terms if t in weak)
+    ]))
+    s = len(terms & strong)
+    w = len(terms & weak)
     return min(BONUS_CAP, W_STRONG * s + W_WEAK * w)
 
 

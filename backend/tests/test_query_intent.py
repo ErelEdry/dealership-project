@@ -155,3 +155,22 @@ class TestLexBonus:
                  "delta", "epsilon", "zeta", "eta", "theta"}
         # 2 strong (0.04) + 8 weak (0.064) = 0.104 → clamped to the cap
         assert lex_bonus(terms, v) == pytest.approx(BONUS_CAP)
+
+    @pytest.mark.parametrize("term,veh", [
+        ("ev", dict(make="Chevrolet", model="Onix")),     # "ev" inside "chevrolet"
+        ("3", dict(make="Mazda", model="Mazda3")),        # "3" inside "mazda3"
+        ("eco", dict(ai_lifestyle_tags=["economical"])),  # "eco" inside a tag
+        ("cross", dict(model="Corolla")),
+    ])
+    def test_no_substring_hits(self, term, veh):
+        assert lex_bonus({term}, _veh(**veh)) == 0.0
+
+    @pytest.mark.parametrize("terms,veh,expected", [
+        ({"model", "3"}, dict(make="Tesla", model="Model 3"), 0.04),
+        ({"cr"}, dict(make="Honda", model="CR-V"), 0.02),           # hyphenated model
+        ({"mercedes"}, dict(make="Mercedes-Benz", model="GLE"), 0.02),
+        ({"family"}, dict(ai_lifestyle_tags=["family-friendly"]), 0.008),
+        ({"suv"}, dict(ai_segment="Compact SUV"), 0.008),
+    ])
+    def test_whole_token_hits(self, terms, veh, expected):
+        assert lex_bonus(terms, _veh(**veh)) == pytest.approx(expected)
