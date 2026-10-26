@@ -15,8 +15,8 @@ def _now():
 def _booking(**kw):
     base = dict(
         vehicle_vin="SYNABC1234567",
-        customer_name="erel edry",
-        customer_email="erel@example.com",
+        customer_name="jane doe",
+        customer_email="jane@example.com",
         customer_phone="+353 87 123 4567",
         appointment_datetime=_now() + timedelta(days=3),
     )
@@ -25,7 +25,7 @@ def _booking(**kw):
 
 
 def test_valid_booking_titles_name():
-    assert BookingCreate(**_booking()).customer_name == "Erel Edry"
+    assert BookingCreate(**_booking()).customer_name == "Jane Doe"
 
 
 def test_phone_is_cleaned_of_letters():

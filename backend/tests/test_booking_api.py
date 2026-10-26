@@ -78,8 +78,8 @@ def _client(session):
 def _body(when):
     return {
         "vehicle_vin": VIN,
-        "customer_name": "erel edry",
-        "customer_email": "erel@example.com",
+        "customer_name": "jane doe",
+        "customer_email": "jane@example.com",
         "customer_phone": "+353 87 123 4567",
         "appointment_datetime": when,
     }
