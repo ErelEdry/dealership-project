@@ -70,6 +70,9 @@ def pipeline(monkeypatch):
     monkeypatch.setattr(mod, "enrich_vehicle", _enrich)
     monkeypatch.setattr(mod, "read_csv", lambda path: iter([(2, dict(ROW))]))
 
+    mod.cache_clears = []
+    monkeypatch.setattr(mod, "clear_search_cache", lambda: mod.cache_clears.append(1))
+
     mod.real_upsert_vehicle = mod.upsert_vehicle
     mod.upserts = []
     monkeypatch.setattr(mod, "upsert_vehicle",
@@ -284,3 +287,17 @@ def test_rerun_does_not_duplicate_quarantine(pipeline, monkeypatch):
     _run(pipeline)
     _run(pipeline)
     assert len(_quarantine_rows(pipeline)) == 1
+
+
+# ── item 15: a run that wrote data clears the search cache ───
+def test_search_cache_cleared_after_writes(pipeline, monkeypatch):
+    _embed(pipeline, monkeypatch, "123")
+    _run(pipeline)
+    assert pipeline.cache_clears == [1]
+
+
+def test_search_cache_kept_when_nothing_changed(pipeline, monkeypatch):
+    _insert(pipeline, content_hash=_hash(ROW))
+    _embed(pipeline, monkeypatch, "123")
+    _run(pipeline)
+    assert pipeline.cache_clears == []

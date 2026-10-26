@@ -25,6 +25,7 @@ from collections import Counter, defaultdict
 from qdrant_client import QdrantClient
 from sqlalchemy import bindparam, create_engine, text
 
+from app.core.cache import clear_search_cache
 from app.core.config import settings
 from app.core.segments import normalize_segment
 
@@ -88,4 +89,7 @@ def main(apply: bool) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Canonicalise ai_segment on existing rows")
     ap.add_argument("--apply", action="store_true", help="Write changes (default: dry run)")
-    main(ap.parse_args().apply)
+    args = ap.parse_args()
+    main(args.apply)
+    if args.apply:
+        clear_search_cache()

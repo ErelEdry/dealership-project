@@ -19,6 +19,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue, Range
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import CACHE_TTL, SEARCH_CACHE_PREFIX
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.query_intent import lex_bonus, parse_price_intent, query_terms
@@ -32,7 +33,6 @@ router = APIRouter()
 
 # Best-effort cache — search never fails just because Redis is down.
 _redis = aioredis.from_url(settings.redis_url, decode_responses=True)
-CACHE_TTL = 300  # seconds
 
 # ── Hybrid lexical rerank + budget intent ────────────────────
 # Over-fetch ANN candidates, then add a *bounded* lexical bonus so exact
@@ -78,7 +78,7 @@ def _build_filter(req: SearchRequest) -> Filter | None:
 @router.post("", response_model=SearchResponse)
 @router.post("/", response_model=SearchResponse, include_in_schema=False)
 async def search(req: SearchRequest, db: AsyncSession = Depends(get_db)):
-    cache_key = "search:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()
+    cache_key = SEARCH_CACHE_PREFIX + hashlib.sha1(req.model_dump_json().encode()).hexdigest()
 
     # ── 1. Cache lookup (best-effort) ─────────────────────────
     try:

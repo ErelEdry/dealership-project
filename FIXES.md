@@ -101,7 +101,7 @@ Check off each box as the task is completed.
 - **Fix:** `AbortController` or a request-id counter that ignores stale responses (`BrowseExperience` already has a `cancelled` flag — same idea).
 - **Small, same area:** `getVehicle` in `lib/api.ts` doesn't `encodeURIComponent(vin)`.
 
-### [ ] 15. Search cache isn't invalidated after data scripts
+### [x] 15. Search cache isn't invalidated after data scripts
 - **Files:** `routes/search.py`, `backend/scripts/*`
 - **Problem:** After `regenerate_prices` or `rebalance_stock_status`, stale results are served for up to 5 minutes.
 - **Fix:** Add a data version to the cache key, or delete `search:*` at the end of each `--apply` script.

@@ -38,6 +38,7 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 from tenacity import RetryError
 
+from app.core.cache import clear_search_cache
 from app.core.config import settings
 from app.etl.embedder import embed_vehicle, ensure_collection
 from app.etl.enricher import enrich_vehicle
@@ -347,6 +348,10 @@ async def run_pipeline(
             # ── 8. Rate limit pause (only after an LLM call) ──
             if enrich:
                 await asyncio.sleep(ENRICH_DELAY)
+
+    # Search results cached before this run would be stale for up to the TTL.
+    if processed or resynced:
+        clear_search_cache()
 
     elapsed = time.time() - start_time
     header = "Pipeline stopped (rate limit)" if rate_limited else "Pipeline complete"

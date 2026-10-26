@@ -38,6 +38,7 @@ from pathlib import Path
 from qdrant_client import QdrantClient
 from sqlalchemy import create_engine, text
 
+from app.core.cache import clear_search_cache
 from app.core.config import settings
 from app.schemas.inventory import make_key
 
@@ -199,3 +200,5 @@ if __name__ == "__main__":
     ap.add_argument("--csv", default=DEFAULT_CSV, help="Path to source CSV")
     args = ap.parse_args()
     main(args.apply, args.csv)
+    if args.apply:
+        clear_search_cache()
