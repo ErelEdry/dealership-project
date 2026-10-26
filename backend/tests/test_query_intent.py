@@ -85,6 +85,36 @@ class TestNoFalsePositives:
         # "5 seats" has no relational keyword, so it must not become a bound
         assert parse_price_intent("suv with 5 seats") == (None, None, None)
 
+    @pytest.mark.parametrize("q", [
+        "car under 50000 km",          # the k of "km" is not thousands shorthand
+        "car under 50,000 km",         # nor may "50,000" shrink to "50" to dodge it
+        "under 50k km",
+        "under 100000 miles",
+        "suv from 2018 to 2022",       # model years, not a €2018-2022 band
+        "between 2015 and 2020",
+        "under 5 years old",           # bare amount far too small to be a price
+        "at least 7 seats",
+        "more than 3 doors",
+        "under 20kw",
+    ])
+    def test_specs_are_not_prices(self, q):
+        assert parse_price_intent(q) == (None, None, None)
+
+    def test_year_range_does_not_hide_a_real_price(self):
+        assert parse_price_intent("from 2018 to 2022 under 30k")[:2] == (None, 30000)
+
+    def test_mileage_does_not_hide_a_real_price(self):
+        assert parse_price_intent("under 100000 km and under 20k")[:2] == (None, 20000)
+
+    @pytest.mark.parametrize("q,expected", [
+        ("under €500", 500),           # a currency marker makes even small amounts prices
+        ("under eur 15000", 15000),
+        ("under €2020", 2020),         # ...and year-like ones
+        ("under 20000.", 20000),       # trailing punctuation
+    ])
+    def test_marked_amounts_still_count(self, q, expected):
+        assert parse_price_intent(q)[1] == expected
+
 
 # ── query_terms ──────────────────────────────────────────────
 class TestQueryTerms:

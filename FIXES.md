@@ -21,7 +21,7 @@ Check off each box as the task is completed.
 - **Fix:** Add a `docker compose exec api alembic upgrade head` step to the Quickstart, or run it automatically before uvicorn in the api service command.
 - **Done when:** empty Postgres volume → the pipeline runs without errors.
 
-### [ ] 3. `parse_price_intent` parses non-price numbers as prices (verified)
+### [x] 3. `parse_price_intent` parses non-price numbers as prices (verified)
 - **File:** `backend/app/core/query_intent.py`
 - **Problem:**
   - `"car under 50000 km"` → `max_price = 50,000,000` (the `k` is captured from `km`).

@@ -66,8 +66,24 @@ _BUDGET_HIGH = {
     "exclusive", "flagship", "top-tier", "prestige",
 }
 
-_CUR = r"(?:€\s*|eur\s*)?"          # optional currency marker
-_AMT = r"(\d[\d.,]*)\s*(k|grand)?"  # 20000 · 20,000 · 20.000 · 20k
+# Numbers followed by one of these are specs, not prices ("50000 km", "7 seats").
+_NON_PRICE_UNIT = (r"(?:km|kms|kilomet\w*|mi|miles?|mileage|years?|yrs?|seats?|"
+                   r"seater|doors?|hp|bhp|kw|cc|owners?)\b")
+_YEAR_RANGE = (1990, 2035)  # a bare number in here is a model year, not a price
+_MIN_BARE_PRICE = 1000      # bare amounts below this ("under 5") aren't prices
+
+
+def _amt_re(i: int) -> str:
+    """Amount pattern with named groups cur{i} / num{i} / unit{i}.
+
+    Matches 20000 · 20,000 · 20.000 · €20k · 20 grand. The number may not be cut
+    short ("50,000" can't match as "50"), `k` must be a whole word (so "km" is
+    not "k"), and a trailing non-price unit rejects the match outright.
+    """
+    return (rf"(?P<cur{i}>€|eur\b)?\s*"
+            rf"(?P<num{i}>\d(?:[\d.,]*\d)?)(?![.,]?\d)"
+            rf"(?:\s*(?P<unit{i}>k|grand)\b)?"
+            rf"(?!\s*{_NON_PRICE_UNIT})")
 
 
 def _amt(num: str, unit: str | None) -> float:
@@ -76,6 +92,31 @@ def _amt(num: str, unit: str | None) -> float:
     if unit:  # thousands shorthand: "20k" / "20.5k"
         return float(num.replace(",", ".")) * 1000
     return float(num.replace(",", "").replace(".", ""))  # strip thousands seps
+
+
+def _price(m: re.Match, i: int) -> float | None:
+    """The amount captured as group set `i`, or None if it isn't a price.
+
+    Without a currency marker or k/grand shorthand, a bare number that looks
+    like a model year ("from 2018 to 2022") or is too small to be a price
+    ("under 5 years old") is ignored.
+    """
+    unit = m.group(f"unit{i}")
+    value = _amt(m.group(f"num{i}"), unit)
+    if m.group(f"cur{i}") or unit:
+        return value
+    if _YEAR_RANGE[0] <= value <= _YEAR_RANGE[1] or value < _MIN_BARE_PRICE:
+        return None
+    return value
+
+
+def _first_price(pattern: str, q: str) -> float | None:
+    """First price captured by `pattern` (group set 0) in the query."""
+    for m in re.finditer(pattern, q):
+        value = _price(m, 0)
+        if value is not None:
+            return value
+    return None
 
 
 def parse_price_intent(query: str) -> tuple[float | None, float | None, str | None]:
@@ -87,28 +128,24 @@ def parse_price_intent(query: str) -> tuple[float | None, float | None, str | No
     q = query.lower()
     min_p = max_p = None
 
-    m = re.search(r"\b(?:between|from)\s+" + _CUR + _AMT
-                  + r"\s*(?:and|to|-|–|—)\s*" + _CUR + _AMT, q)
-    if m:
-        a, b = _amt(m.group(1), m.group(2)), _amt(m.group(3), m.group(4))
-        min_p, max_p = min(a, b), max(a, b)
+    for m in re.finditer(r"\b(?:between|from)\s+" + _amt_re(0)
+                         + r"\s*(?:and|to|-|–|—)\s*" + _amt_re(1), q):
+        a, b = _price(m, 0), _price(m, 1)
+        if a is not None and b is not None:
+            min_p, max_p = min(a, b), max(a, b)
+            break
     else:
-        under = re.search(r"\b(?:under|below|less than|up to|no more than|within|"
-                          r"at most|cheaper than|max(?:imum)?(?:\s+of)?|"
-                          r"budget of)\s+" + _CUR + _AMT, q)
-        if under:
-            max_p = _amt(under.group(1), under.group(2))
+        max_p = _first_price(r"\b(?:under|below|less than|up to|no more than|within|"
+                             r"at most|cheaper than|max(?:imum)?(?:\s+of)?|"
+                             r"budget of)\s+" + _amt_re(0), q)
         # (?<!no ) so "no more than X" stays an upper bound, not also a lower one
-        over = re.search(r"(?<!no )\b(?:over|above|more than|at least|"
-                         r"min(?:imum)?(?:\s+of)?|starting (?:at|from)|north of)\s+"
-                         + _CUR + _AMT, q)
-        if over:
-            min_p = _amt(over.group(1), over.group(2))
+        min_p = _first_price(r"(?<!no )\b(?:over|above|more than|at least|"
+                             r"min(?:imum)?(?:\s+of)?|starting (?:at|from)|north of)\s+"
+                             + _amt_re(0), q)
         if min_p is None and max_p is None:
-            near = re.search(r"\b(?:around|about|approx(?:imately)?|~|near|roughly)"
-                             r"\s+" + _CUR + _AMT, q)
-            if near:
-                c = _amt(near.group(1), near.group(2))
+            c = _first_price(r"(?:\b(?:around|about|approx(?:imately)?|near|roughly)|~)"
+                             r"\s*" + _amt_re(0), q)
+            if c is not None:
                 min_p, max_p = 0.85 * c, 1.15 * c
 
     toks = set(re.findall(r"[a-z][a-z-]*", q))
