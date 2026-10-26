@@ -122,7 +122,7 @@ Check off each box as the task is completed.
 
 ## P3 — Docs and cleanup (matters because this is a portfolio project)
 
-### [ ] 18. Contradictions in the docs
+### [x] 18. Contradictions in the docs
 - `PROGRESS.md` says the frontend is "Not containerised yet" — it is.
 - `README.md` says an 18-value segment vocabulary, `PROGRESS.md` says 17 + `Other`. Pick one.
 - After item 10: make sure the quarantine description is accurate.

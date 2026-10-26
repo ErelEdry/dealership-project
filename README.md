@@ -28,7 +28,7 @@ Not a filter-dropdown car site — you *talk* to it (*"cheap fuel-efficient city
 - **Idempotent, multi-store data ops** — deterministic per-VIN functions keep PostgreSQL, the Qdrant payload, and the source CSV in sync; re-runs never duplicate or drift.
 - **Bespoke "Night-Drive HMI" UI** — a dark automotive-instrument aesthetic with a match-score gauge, per-body-type car silhouettes, live range filters, and a working test-drive booking flow.
 - **Measured, not just built** — a retrieval eval harness scores precision@k / recall@k / MRR / nDCG on a labelled query set and shows the hybrid rerank beats pure ANN.
-- **Tested + CI** — 80 unit tests (pytest) and a GitHub Actions pipeline (ruff + pytest + frontend build).
+- **Tested + CI** — 200 unit tests (pytest) and a GitHub Actions pipeline (ruff + pytest + frontend build).
 
 ---
 
@@ -75,7 +75,7 @@ flowchart TD
 
 - **Validation with quarantine** — bad rows are routed to a `validation_errors` table, never silently dropped.
 - **Deterministic vector IDs** — Qdrant point ID = `MD5(VIN)`, so re-embedding *updates* a point instead of orphaning the old one (Python's `hash()` is per-process randomised — a real footgun this avoids).
-- **Canonical segments** — free-text LLM output is snapped onto a fixed 18-value vocabulary so `ai_segment` works as a filter facet.
+- **Canonical segments** — free-text LLM output is snapped onto a fixed 18-value vocabulary (17 segments + `Other`) so `ai_segment` works as a filter facet.
 
 ---
 
@@ -105,7 +105,7 @@ flowchart TD
 | Detail | Book a test drive |
 |---|---|
 | ![detail](docs/screenshots/04-detail.png) | ![booking](docs/screenshots/05-booking.png) |
-| Spec sheet, AI summary, confidence gauge. | Validated booking flow (404 / 409 / 422 handled). |
+| Spec sheet, AI summary, confidence gauge. | Booking flow: 404 unknown car, 409 sold or slot taken (enforced by a DB unique index, so concurrent requests can't double-book), 422 invalid input or past time (any timezone). |
 
 *The gauge on each card is the semantic match %; the tiles use per-body-type car silhouettes since the sample data has no image URLs.*
 
@@ -148,11 +148,14 @@ Try a search: *"cheap fuel efficient city car for a student"*, *"luxury electric
 docker compose exec api sh -c "pip install -r requirements-dev.txt && pytest"
 ```
 
-**80 unit tests** cover the logic that carries real risk (no DB/network needed):
+**200 unit tests** cover the logic that carries real risk (no DB/network needed):
 budget-intent parsing, lexical rerank, segment normalisation, the deterministic
-pricing model, and the ingestion/booking validators. The pure query helpers were
-extracted into `app/core/query_intent.py` specifically so they're testable
-without pulling in the embedding model.
+pricing model, the ingestion/booking validators, the ETL pipeline's skip /
+resync / quarantine decisions, and the search/vehicles/bookings routes against
+stubbed stores. The pure query helpers were extracted into
+`app/core/query_intent.py` specifically so they're testable without pulling in
+the embedding model. One more test (`test_booking_race.py`) fires concurrent
+bookings at a real PostgreSQL; it runs only when `TEST_DATABASE_URL` is set.
 
 > These tests caught a real bug — `"no more than 30k"` was also setting a *lower*
 > bound (the `over` pattern's `"more than"` matched inside it), fixed with a
@@ -170,7 +173,8 @@ and compares **pure vector search (ANN)** against the **hybrid lexical rerank**.
 Relevance is predicate-based — a result counts as relevant if its
 segment/body/fuel is in the query's allowed set and its price is within the
 stated band — a scalable, explainable proxy for human judgment, evaluated over
-available stock (18 queries, k=10):
+available stock (18 queries, k=10). *Measured before the lexical-rerank and
+budget-word fixes on the `fixes/review` branch; re-run to refresh.*
 
 | | P@5 | P@10 | R@10 | MRR | nDCG@10 |
 |---|---|---|---|---|---|
@@ -212,7 +216,7 @@ dealership-ai/
 │  │  └─ schemas/          Pydantic schemas
 │  ├─ scripts/             idempotent data migrations (prices, stock, segments)
 │  ├─ eval/                retrieval eval harness (precision@k / MRR / nDCG)
-│  ├─ tests/               80 unit tests (pytest)
+│  ├─ tests/               200 unit tests (pytest) + 1 opt-in DB test
 │  └─ alembic/             schema migrations
 ├─ frontend/               Next.js 16 app (App Router, TypeScript) + Dockerfile
 ├─ docs/screenshots/
