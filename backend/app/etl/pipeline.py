@@ -29,7 +29,7 @@ from pathlib import Path
 
 import structlog
 from groq import RateLimitError
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 from tenacity import RetryError
 
@@ -37,7 +37,8 @@ from app.core.config import settings
 from app.etl.embedder import embed_vehicle, ensure_collection
 from app.etl.enricher import enrich_vehicle
 from app.etl.ingestor import read_csv, validate_row
-from app.schemas.inventory import EnrichedVehicle
+from app.models.inventory import ValidationErrorLog
+from app.schemas.inventory import EnrichedVehicle, ValidationError
 
 log = structlog.get_logger()
 
@@ -95,6 +96,30 @@ def needs_reenrich(session: Session, vin: str, cutoff: str) -> bool:
         {"vin": vin, "cutoff": cutoff}
     ).fetchone()
     return row is None
+
+
+def quarantine(session: Session, error: ValidationError) -> bool:
+    """Record an invalid row in validation_errors. Returns True if newly added.
+
+    Re-running the pipeline over the same CSV must not pile up copies, so a row
+    already quarantined with the same file, row number and error is skipped.
+    """
+    exists = session.scalar(select(ValidationErrorLog.id).where(
+        ValidationErrorLog.source_file == error.source_file,
+        ValidationErrorLog.row_number == error.row_number,
+        ValidationErrorLog.error_detail == error.error_detail,
+    ).limit(1))
+    if exists is not None:
+        return False
+    session.add(ValidationErrorLog(
+        raw_row=error.raw_row,
+        error_detail=error.error_detail,
+        source_file=error.source_file,
+        row_number=error.row_number,
+        created_at=error.created_at,
+    ))
+    session.commit()
+    return True
 
 
 def upsert_vehicle(session: Session, vehicle: EnrichedVehicle, point_id: str) -> None:
@@ -198,18 +223,20 @@ async def run_pipeline(
     ensure_collection()
 
     source_file = Path(csv_path).name
-    processed = skipped = failed = needs_review_count = 0
+    processed = skipped = failed = quarantined = needs_review_count = 0
     rate_limited = False
     start_time = time.time()
 
     with Session(_engine) as session:
         for row_number, row in read_csv(csv_path):
 
-            # ── 1. Validate raw row ──────────────────────────
+            # ── 1. Validate raw row (invalid → quarantine) ───
             vehicle, error = validate_row(row_number, row, source_file)
             if error:
-                log.warning("validation_skip", row=row_number, detail=error.error_detail)
-                failed += 1
+                is_new = quarantine(session, error)
+                log.warning("validation_quarantined", row=row_number,
+                            new=is_new, detail=error.error_detail)
+                quarantined += 1
                 continue
 
             # ── 2. Decide whether to (re)enrich this vehicle ──
@@ -307,13 +334,14 @@ async def run_pipeline(
   Processed   : {processed}
   Skipped     : {skipped} (already enriched)
   Failed      : {failed}
+  Quarantined : {quarantined} (invalid rows → validation_errors)
   Needs review: {needs_review_count} (confidence < 0.7)
   Time        : {elapsed:.1f}s{resume_note}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━""")
 
     log.info("pipeline_complete",
              processed=processed, skipped=skipped,
-             failed=failed, needs_review=needs_review_count,
+             failed=failed, quarantined=quarantined, needs_review=needs_review_count,
              rate_limited=rate_limited, elapsed_s=round(elapsed, 1))
 
 

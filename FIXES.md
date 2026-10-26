@@ -70,7 +70,7 @@ Check off each box as the task is completed.
 - **Problem:** `ON CONFLICT DO UPDATE` updates only price/status/AI fields. If make/model/year/mileage/body/fuel/seats/acquisition_cost/condition change in the CSV, the Qdrant payload is updated and Postgres isn't. Also, `content_hash` is stored but unused: CSV changes are never picked up without `--force`.
 - **Fix:** Update all spec columns in `DO UPDATE` (plus `content_hash`, `source_file`). Replace `vehicle_exists` with "exists and `content_hash` matches".
 
-### [ ] 10. Quarantine is not implemented
+### [x] 10. Quarantine is not implemented
 - **Files:** `backend/app/etl/pipeline.py`, `README.md`
 - **Problem:** The README says invalid rows go to the `validation_errors` table. In reality `validate_row` returns an error object and the pipeline only logs it. No code writes to the table.
 - **Fix:** INSERT into `validation_errors` in the pipeline (the model and table already exist). Better than changing the README, since it's one of the highlights.

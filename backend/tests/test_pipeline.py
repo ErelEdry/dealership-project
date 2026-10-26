@@ -11,8 +11,10 @@ import sys
 import types
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
+
+from app.models.inventory import ValidationErrorLog
 
 ROW = {
     "vin": "SYND21A267D28FA2F", "dealer_id": "DEALER_001", "stock_id": "S00001",
@@ -21,6 +23,8 @@ ROW = {
     "mileage": "16300", "price": "5250.0", "acquisition_cost": "4252.5",
     "condition": "used", "stock_status": "available", "arrived_date": "2017/08/01",
 }
+
+BROKEN_ROW = {**ROW, "vin": "SYNBROKEN00000001", "year": "not-a-year"}
 
 ENRICHMENT = types.SimpleNamespace(
     ai_lifestyle_tags=["city"], ai_segment="City Car",
@@ -47,6 +51,7 @@ def pipeline(monkeypatch):
     with engine.begin() as c:
         c.execute(text("CREATE TABLE vehicle_inventory ("
                        "vin TEXT PRIMARY KEY, enriched_at TEXT, vector_id TEXT)"))
+    ValidationErrorLog.__table__.create(engine)
     monkeypatch.setattr(mod, "_engine", engine)
     monkeypatch.setattr(mod, "ENRICH_DELAY", 0)
 
@@ -133,3 +138,32 @@ def test_needs_reenrich(pipeline, enriched_at, vector_id, expected):
     _insert(pipeline, "VIN1", enriched_at, vector_id)
     with Session(pipeline._engine) as s:
         assert pipeline.needs_reenrich(s, "VIN1", "2026-08-17") is expected
+
+
+# ── item 10: invalid rows are quarantined ────────────────────
+def _quarantine_rows(pipeline):
+    with Session(pipeline._engine) as s:
+        return s.scalars(select(ValidationErrorLog)).all()
+
+
+def test_broken_row_is_quarantined(pipeline, monkeypatch, capsys):
+    monkeypatch.setattr(pipeline, "read_csv",
+                        lambda path: iter([(7, dict(BROKEN_ROW)), (8, dict(ROW))]))
+    _embed(pipeline, monkeypatch, "123")
+    _run(pipeline)
+
+    [q] = _quarantine_rows(pipeline)
+    assert q.raw_row == BROKEN_ROW            # original row kept as received
+    assert q.row_number == 7
+    assert q.source_file == "inventory.csv"
+    assert "year" in q.error_detail
+    assert pipeline.upserts == [(ROW["vin"], "123")]   # valid row still processed
+    assert "Quarantined : 1" in capsys.readouterr().out
+
+
+def test_rerun_does_not_duplicate_quarantine(pipeline, monkeypatch):
+    monkeypatch.setattr(pipeline, "read_csv",
+                        lambda path: iter([(7, dict(BROKEN_ROW))]))
+    _run(pipeline)
+    _run(pipeline)
+    assert len(_quarantine_rows(pipeline)) == 1
