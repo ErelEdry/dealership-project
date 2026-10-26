@@ -76,7 +76,7 @@ Check off each box as the task is completed.
 - **Fix:** INSERT into `validation_errors` in the pipeline (the model and table already exist). Better than changing the README, since it's one of the highlights.
 - **Done when:** a CSV with a broken row → a row in `validation_errors`.
 
-### [ ] 11. `GET /api/bookings` exposes customer data without auth
+### [x] 11. `GET /api/bookings` exposes customer data without auth
 - **File:** `backend/app/api/routes/bookings.py`
 - **Problem:** Anyone can list customer names, vehicles and appointment times.
 - **Fix:** Protect with an admin token header (`secret_key` exists in config and is unused), or remove the endpoint from the public router.

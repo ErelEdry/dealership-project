@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     debug:       bool = True
     secret_key:  str = "changeme"
+    # Required in the X-Admin-Token header for admin-only endpoints (the
+    # bookings listing). Empty = those endpoints are disabled.
+    admin_token: str = ""
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:changeme@localhost:5432/dealership"

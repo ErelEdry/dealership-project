@@ -2,7 +2,7 @@
 Phase 4 — Test-drive bookings.
 
     POST /api/bookings        create a test-drive request for a vehicle
-    GET  /api/bookings        recent bookings (demo/admin listing)
+    GET  /api/bookings        recent bookings — admin only (X-Admin-Token)
     GET  /api/bookings/{id}   one booking
 
 The data layer (model, schemas, migrated `bookings` table) was scaffolded in
@@ -14,13 +14,15 @@ unique index (migration 002); the SELECT below is only the fast, friendly path.
 
 from __future__ import annotations
 
+import secrets
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.booking import Booking
 from app.models.inventory import VehicleInventory
@@ -90,8 +92,21 @@ async def create_booking(body: BookingCreate, db: AsyncSession = Depends(get_db)
     return BookingResponse.model_validate(booking)
 
 
-@router.get("", response_model=list[BookingResponse])
-@router.get("/", response_model=list[BookingResponse], include_in_schema=False)
+def require_admin(x_admin_token: str | None = Header(None)) -> None:
+    """Gate admin-only endpoints on the X-Admin-Token header.
+
+    Fails closed: with no ADMIN_TOKEN configured the endpoint is disabled, so a
+    fresh install never exposes customer data by default.
+    """
+    if not settings.admin_token:
+        raise HTTPException(status_code=403, detail="Admin endpoints are disabled")
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, settings.admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token")
+
+
+@router.get("", response_model=list[BookingResponse], dependencies=[Depends(require_admin)])
+@router.get("/", response_model=list[BookingResponse], include_in_schema=False,
+            dependencies=[Depends(require_admin)])
 async def list_bookings(
     db: AsyncSession = Depends(get_db),
     vin: str | None = Query(None, description="Filter to one vehicle"),

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from app.api.routes import bookings
+from app.core.config import settings
 from app.core.database import get_db
 
 VIN = "SYNABC12345678901"
@@ -52,6 +53,9 @@ class FakeSession:
 
     async def refresh(self, obj):
         pass
+
+    async def execute(self, stmt):
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
 
     async def commit(self):
         self.committed = True
@@ -149,3 +153,25 @@ def test_unrelated_integrity_error_is_not_masked():
     session = FakeSession(violate="some_other_constraint")
     r = _client(session).post("/api/bookings", json=_body(_FUTURE.isoformat()))
     assert r.status_code == 500
+
+
+# ── GET /api/bookings is admin-only (item 11) ────────────────
+def test_listing_disabled_without_configured_token(monkeypatch):
+    monkeypatch.setattr(settings, "admin_token", "")
+    r = _client(FakeSession()).get("/api/bookings", headers={"X-Admin-Token": ""})
+    assert r.status_code == 403
+
+
+@pytest.mark.parametrize("headers", [{}, {"X-Admin-Token": "wrong"}])
+def test_listing_rejects_missing_or_wrong_token(monkeypatch, headers):
+    monkeypatch.setattr(settings, "admin_token", "s3cret-admin-token")
+    r = _client(FakeSession()).get("/api/bookings", headers=headers)
+    assert r.status_code == 401
+
+
+def test_listing_with_admin_token(monkeypatch):
+    monkeypatch.setattr(settings, "admin_token", "s3cret-admin-token")
+    r = _client(FakeSession()).get("/api/bookings",
+                                   headers={"X-Admin-Token": "s3cret-admin-token"})
+    assert r.status_code == 200
+    assert r.json() == []
