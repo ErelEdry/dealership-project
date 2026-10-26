@@ -65,7 +65,7 @@ Check off each box as the task is completed.
 - **Problem:** `embed_query(...)` (ONNX model inference) and `get_qdrant().query_points(...)` (sync client) run directly inside `async def` and block the event loop. Every search stalls all other requests, including `/health`.
 - **Fix:** `await asyncio.to_thread(embed_query, req.query)` and `asyncio.to_thread` for the Qdrant query too (or `AsyncQdrantClient`). The same pattern already exists in `embedder.embed_vehicle`.
 
-### [ ] 9. Upsert doesn't update spec columns → Postgres/Qdrant drift
+### [x] 9. Upsert doesn't update spec columns → Postgres/Qdrant drift
 - **File:** `backend/app/etl/pipeline.py` (`upsert_vehicle`, `vehicle_exists`)
 - **Problem:** `ON CONFLICT DO UPDATE` updates only price/status/AI fields. If make/model/year/mileage/body/fuel/seats/acquisition_cost/condition change in the CSV, the Qdrant payload is updated and Postgres isn't. Also, `content_hash` is stored but unused: CSV changes are never picked up without `--force`.
 - **Fix:** Update all spec columns in `DO UPDATE` (plus `content_hash`, `source_file`). Replace `vehicle_exists` with "exists and `content_hash` matches".

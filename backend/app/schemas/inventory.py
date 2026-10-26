@@ -154,14 +154,16 @@ class RawVehicle(BaseModel):
         return self
 
     def content_hash(self) -> str:
-        """MD5 of core specs. Used to detect whether re-enrichment is needed."""
-        key = json.dumps({
-            "vin":          self.vin,
-            "price":        self.price,
-            "mileage":      self.mileage,
-            "stock_status": self.stock_status,
-            "features":     sorted(self.features),
-        }, sort_keys=True)
+        """MD5 of every spec field from the source row.
+
+        The pipeline compares it with the stored hash to spot CSV changes (any
+        field: make, year, price, stock status…) and resync that vehicle.
+        Provenance fields (source_file, ingested_at) are excluded so the hash
+        only moves when the vehicle itself changes.
+        """
+        spec = self.model_dump(mode="json", exclude={"source_file", "ingested_at"})
+        spec["features"] = sorted(spec["features"])
+        key = json.dumps(spec, sort_keys=True)
         return hashlib.md5(key.encode()).hexdigest()
 
     model_config = {"use_enum_values": True}
