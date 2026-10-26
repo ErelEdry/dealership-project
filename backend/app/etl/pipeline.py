@@ -66,9 +66,15 @@ ENRICH_DELAY  = 2.0   # seconds between enrichment calls  (~30 RPM)
 
 # ── Database helpers ─────────────────────────────────────────
 
-def vehicle_exists(session: Session, vin: str) -> bool:
+def is_indexed(session: Session, vin: str) -> bool:
+    """True if the vehicle is enriched *and* has a Qdrant point.
+
+    A row with no vector_id (its embedding failed) must not count as done,
+    or it would stay in PostgreSQL forever without ever reaching search.
+    """
     row = session.execute(
-        text("SELECT enriched_at FROM vehicle_inventory WHERE vin = :vin"),
+        text("SELECT 1 FROM vehicle_inventory WHERE vin = :vin "
+             "AND enriched_at IS NOT NULL AND vector_id IS NOT NULL"),
         {"vin": vin}
     ).fetchone()
     return row is not None
@@ -77,20 +83,21 @@ def vehicle_exists(session: Session, vin: str) -> bool:
 def needs_reenrich(session: Session, vin: str, cutoff: str) -> bool:
     """True if the vehicle should be re-enriched under --reenrich-before.
 
-    Returns True when the row is new, never enriched, or was last enriched
-    *before* `cutoff` (a date/timestamp string). Rows already enriched on/after
-    the cutoff are left alone — this is what lets a partial re-run resume
+    Returns True when the row is new, never enriched, has no Qdrant point, or
+    was last enriched *before* `cutoff` (a date/timestamp string). Rows already
+    enriched and indexed on/after the cutoff are left alone — this is what lets a partial re-run resume
     without redoing rows that are already on the new model.
     """
     row = session.execute(
         text("SELECT 1 FROM vehicle_inventory "
-             "WHERE vin = :vin AND enriched_at IS NOT NULL AND enriched_at >= :cutoff"),
+             "WHERE vin = :vin AND enriched_at IS NOT NULL AND enriched_at >= :cutoff "
+             "AND vector_id IS NOT NULL"),
         {"vin": vin, "cutoff": cutoff}
     ).fetchone()
     return row is None
 
 
-def upsert_vehicle(session: Session, vehicle: EnrichedVehicle, point_id: str | None) -> None:
+def upsert_vehicle(session: Session, vehicle: EnrichedVehicle, point_id: str) -> None:
     """Insert or update a fully enriched vehicle in PostgreSQL."""
     data = {
         "vin":                  vehicle.vin,
@@ -211,7 +218,7 @@ async def run_pipeline(
                     if not needs_reenrich(session, vehicle.vin, reenrich_before):
                         skipped += 1
                         continue
-                elif vehicle_exists(session, vehicle.vin):
+                elif is_indexed(session, vehicle.vin):
                     skipped += 1
                     continue
 
@@ -259,6 +266,14 @@ async def run_pipeline(
 
             # ── 5. Embed + upsert to Qdrant ──────────────────
             point_id = await embed_vehicle(ev)
+            if point_id is None:
+                # Don't record it as enriched without a vector: leave the row
+                # as it was so the next run picks this vehicle up again.
+                print("✗ embedding failed")
+                log.error("embedding_skipped", vin=vehicle.vin)
+                failed += 1
+                await asyncio.sleep(ENRICH_DELAY)
+                continue
 
             # ── 6. Write to PostgreSQL ───────────────────────
             upsert_vehicle(session, ev, point_id)

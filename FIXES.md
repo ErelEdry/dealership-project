@@ -44,7 +44,7 @@ Check off each box as the task is completed.
 - **Optional:** block by time window (e.g. 30 minutes), not only exact match — today 10:00 and 10:01 are both accepted.
 - **Done when:** two concurrent requests → one 201, one 409.
 
-### [ ] 6. An embedding failure removes a vehicle from search permanently
+### [x] 6. An embedding failure removes a vehicle from search permanently
 - **File:** `backend/app/etl/pipeline.py`
 - **Problem:** `embed_vehicle` returns `None` on failure, but `upsert_vehicle` is called anyway with `vector_id=NULL` and `enriched_at=now`. On the next run `vehicle_exists` skips it, so the vehicle exists in Postgres and never reaches Qdrant.
 - **Fix:** If `point_id is None` → don't write (or write without `enriched_at`) and count it as failed; the skip check should also require `vector_id IS NOT NULL`.
