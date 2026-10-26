@@ -5,10 +5,15 @@
 # before the cutoff), stops cleanly when the daily token cap is hit, and disables
 # its own scheduled task once no stale rows remain.
 #
-# Registered as scheduled task 'DealershipAI-ReenrichProvenance'.
+# Optional: register it as a daily Windows scheduled task (the task name below
+# is what it disables when done), e.g.
+#   $a = New-ScheduledTaskAction -Execute 'powershell.exe' `
+#        -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$PWD\daily_reenrich.ps1`""
+#   Register-ScheduledTask DealershipAI-ReenrichProvenance -Action $a `
+#        -Trigger (New-ScheduledTaskTrigger -Daily -At 9am)
 
 $ErrorActionPreference = 'Continue'
-$proj   = 'C:\Users\Erel\Documents\Claude\Projects\DE Project\dealership-ai'
+$proj   = $PSScriptRoot   # the repo root this script lives in
 $cutoff = '2026-08-17'
 $task   = 'DealershipAI-ReenrichProvenance'
 

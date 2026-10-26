@@ -3,7 +3,7 @@
 **Last verified:** 2026-08-18 · **Status:** Phases 1–2 complete · issues #1, #3 & #6 fixed · Phase 3 built (+ budget-intent search) · Phase 4 redesigned (Night-Drive HMI) · **unit tests + CI · retrieval eval · full-stack Docker**
 
 > This is a *current state* snapshot. For the chronological build history and
-> the errors hit along the way, see [SESSION_LOG.md](SESSION_LOG.md).
+> the errors hit along the way, see [docs/SESSION_LOG.md](docs/SESSION_LOG.md).
 
 ---
 
@@ -198,11 +198,11 @@ not-yet-migrated vehicle. The cutoff is fixed at 2026-08-17, so repeated daily
 runs keep skipping already-done rows and self-terminate once all 831 are done
 (~5–6 days on the 200k-TPD free tier, or one shot on Dev Tier).
 
-**Automated** via a Windows Scheduled Task `DealershipAI-ReenrichProvenance`
-(daily 09:00) that runs [daily_reenrich.ps1](daily_reenrich.ps1): brings the
-stack up, runs the resume command, and **disables itself** once
-`scripts.reenrich_status` reports 0 stale rows. Logs to `logs/reenrich_*.log`.
-Manage it with:
+**Optional automation (Windows):** [daily_reenrich.ps1](daily_reenrich.ps1)
+brings the stack up, runs the resume command, and once `scripts.reenrich_status`
+reports 0 stale rows **disables its own scheduled task**
+(`DealershipAI-ReenrichProvenance`). Logs go to `logs/reenrich_*.log`. The
+script's header shows how to register the daily task; manage it with:
 ```powershell
 Get-ScheduledTaskInfo DealershipAI-ReenrichProvenance   # status / next run
 Start-ScheduledTask    DealershipAI-ReenrichProvenance   # run now

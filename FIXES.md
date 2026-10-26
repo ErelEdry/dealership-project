@@ -128,7 +128,7 @@ Check off each box as the task is completed.
 - After item 10: make sure the quarantine description is accurate.
 - After items 4–5: update the README on booking 404/409/422 handling.
 
-### [ ] 19. Personal files in the repo
+### [x] 19. Personal files in the repo
 - `daily_reenrich.ps1` contains a `C:\Users\Erel\...` path and a personal scheduled task.
 - `SESSION_LOG.md`, `frontend/CLAUDE.md`, `frontend/AGENTS.md` — consider whether they belong in a public repo, or move them under `docs/`.
 - `frontend/README.md` is probably the default create-next-app README.
