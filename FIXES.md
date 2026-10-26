@@ -95,7 +95,7 @@ Check off each box as the task is completed.
 - **Problem:** `"fuel economy hatchback"` → `direction="low"` (verified), i.e. sorting by price when the user didn't ask for it.
 - **Fix:** Remove `economy` (and consider `value`) from `_BUDGET_LOW`, or ignore it when the previous word is `fuel`. Add a test.
 
-### [ ] 14. Stale search responses can overwrite newer ones
+### [x] 14. Stale search responses can overwrite newer ones
 - **File:** `frontend/src/components/SearchExperience.tsx`
 - **Problem:** Clicking two chips quickly: if the first response arrives last, it's shown under the second query.
 - **Fix:** `AbortController` or a request-id counter that ignores stale responses (`BrowseExperience` already has a `cancelled` flag — same idea).
