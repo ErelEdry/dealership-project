@@ -258,7 +258,7 @@ class EnrichedVehicle(RawVehicle):
             f"{self.year} {self.make} {self.model} {self.trim or ''}".strip(),
             f"Segment: {self.ai_segment or 'N/A'}",
             f"Tags: {', '.join(self.ai_lifestyle_tags)}",
-            f"Price: ${self.price:,.0f}  |  Mileage: {self.mileage:,}km",
+            f"Price: €{self.price:,.0f}  |  Mileage: {self.mileage:,}km",
             f"Fuel: {self.fuel_type or 'N/A'}  |  Transmission: {self.transmission or 'N/A'}",
             f"Seats: {self.seats or 'N/A'}  |  Body: {self.body_type or 'N/A'}",
         ]

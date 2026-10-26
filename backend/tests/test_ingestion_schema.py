@@ -73,3 +73,17 @@ class TestAnomalyFlags:
     def test_clean_row_has_no_flags(self):
         v = RawVehicle(**_row(mileage=50000, price=25000))
         assert v._anomaly_flags == []
+
+
+def test_embedding_document_prices_in_euros():
+    doc = EnrichedVehicle(**RawVehicle(**_row(price=25000.0)).model_dump()).build_embedding_document()
+    assert "Price: €25,000" in doc
+    assert "$" not in doc
+
+
+def test_enrichment_prompt_prices_in_euros():
+    # The prompt's "$" is why old AI summaries quoted dollar prices.
+    from app.etl.enricher import _build_specs_string
+    specs = _build_specs_string(RawVehicle(**_row(price=25000.0)))
+    assert "Price: €25,000" in specs
+    assert "$" not in specs
