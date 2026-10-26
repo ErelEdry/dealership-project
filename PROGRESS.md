@@ -125,7 +125,7 @@ Schema migrations run automatically when the `api` container starts
 
 ## Testing & CI
 
-**200 unit tests, all green** (`backend/tests/`, pytest) + 1 opt-in DB test. Focused on the pure
+**202 unit tests, all green** (`backend/tests/`, pytest) + 1 opt-in DB test. Focused on the pure
 logic that carries real risk — no DB/network needed, so they run in seconds:
 - `test_query_intent.py` — budget-intent parsing (explicit bounds, EU/US
   separators, `k`/`grand`, qualitative direction, false-positive guards) +
@@ -267,6 +267,13 @@ The `./backend:/app` mount can start before Docker Desktop's file-sharing layer
 is ready, leaving `/app` empty and uvicorn logging `Could not import module "main"`.
 Environmental, not fixable from compose. Clear it with:
 `docker compose up -d --force-recreate api`
+
+### 7. Docker images not pinned yet
+`qdrant/qdrant` and `dpage/pgadmin4` still use `:latest` (FIXES.md #16). They
+should be pinned to the versions the existing volumes were created with: a
+server can't open storage written by a newer version, so pinning lower than
+what's running would break the current data. Check with
+`docker compose exec qdrant sh -c 'wget -qO- localhost:6333'` and pin that.
 
 ### 5. Minor
 - ✅ `datetime.utcnow()` deprecation fixed — replaced with a tz-aware `utcnow()`

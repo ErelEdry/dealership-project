@@ -28,7 +28,7 @@ Not a filter-dropdown car site — you *talk* to it (*"cheap fuel-efficient city
 - **Idempotent, multi-store data ops** — deterministic per-VIN functions keep PostgreSQL, the Qdrant payload, and the source CSV in sync; re-runs never duplicate or drift.
 - **Bespoke "Night-Drive HMI" UI** — a dark automotive-instrument aesthetic with a match-score gauge, per-body-type car silhouettes, live range filters, and a working test-drive booking flow.
 - **Measured, not just built** — a retrieval eval harness scores precision@k / recall@k / MRR / nDCG on a labelled query set and shows the hybrid rerank beats pure ANN.
-- **Tested + CI** — 200 unit tests (pytest) and a GitHub Actions pipeline (ruff + pytest + frontend build).
+- **Tested + CI** — 202 unit tests (pytest) and a GitHub Actions pipeline (ruff + pytest + frontend build).
 
 ---
 
@@ -140,6 +140,40 @@ cd frontend && npm install && npm run dev
 
 Try a search: *"cheap fuel efficient city car for a student"*, *"luxury electric SUV"*, or *"family SUV between 30k and 40k"*.
 
+**Optional settings** (`.env`): `ADMIN_TOKEN` enables the admin-only booking
+listing (`GET /api/bookings` with header `X-Admin-Token`); `CORS_ORIGINS` lists
+the browser origins allowed to call the API (comma-separated); `DEBUG=true`
+logs every SQL query.
+
+<details><summary>Upgrading an existing install (data from before the review fixes)</summary>
+
+A fresh install needs none of this. On a stack that already holds data, run
+once after pulling:
+
+```bash
+docker compose up -d --build --force-recreate api   # applies migration 002 on start
+docker compose exec api alembic current             # expect: 002 (head)
+
+# Restore make/model casing (Bmw → BMW, Rav4 → RAV4) in PostgreSQL, the Qdrant
+# payload and the AI text; also adds the make_key the search filter now uses.
+docker compose exec api python -m scripts.fix_name_casing           # dry run
+docker compose exec api python -m scripts.fix_name_casing --apply
+
+# The change-detection hash now covers every spec field, so the first run
+# resyncs every vehicle: local re-embed, no LLM calls, a few minutes.
+docker compose exec api python -m app.etl.pipeline
+```
+
+- **Migration 002** converts booking times to `timestamptz` and adds a unique
+  index (one active booking per vehicle + slot) and a foreign key to the
+  inventory. It stops with an error if existing bookings already break either
+  rule; fix those rows by hand, then restart the `api` container.
+- Until `fix_name_casing --apply` has run, filtering search by make returns
+  nothing, because existing Qdrant points have no `make_key` yet.
+- Bookings made before the fix were stored as the browser's local time labelled
+  UTC; there is no way to tell which rows are affected, so they are left as-is.
+</details>
+
 ---
 
 ## Testing & CI
@@ -148,7 +182,7 @@ Try a search: *"cheap fuel efficient city car for a student"*, *"luxury electric
 docker compose exec api sh -c "pip install -r requirements-dev.txt && pytest"
 ```
 
-**200 unit tests** cover the logic that carries real risk (no DB/network needed):
+**202 unit tests** cover the logic that carries real risk (no DB/network needed):
 budget-intent parsing, lexical rerank, segment normalisation, the deterministic
 pricing model, the ingestion/booking validators, the ETL pipeline's skip /
 resync / quarantine decisions, and the search/vehicles/bookings routes against
@@ -216,7 +250,7 @@ dealership-ai/
 │  │  └─ schemas/          Pydantic schemas
 │  ├─ scripts/             idempotent data migrations (prices, stock, segments)
 │  ├─ eval/                retrieval eval harness (precision@k / MRR / nDCG)
-│  ├─ tests/               200 unit tests (pytest) + 1 opt-in DB test
+│  ├─ tests/               202 unit tests (pytest) + 1 opt-in DB test
 │  └─ alembic/             schema migrations
 ├─ frontend/               Next.js 16 app (App Router, TypeScript) + Dockerfile
 ├─ docs/screenshots/
