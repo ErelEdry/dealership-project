@@ -111,7 +111,7 @@ Check off each box as the task is completed.
 - **Problem:** `qdrant/qdrant:latest` and `dpage/pgadmin4:latest`, while the client is pinned to `qdrant-client==1.12.1`. A new server release could break compatibility.
 - **Fix:** Pin versions (e.g. `qdrant/qdrant:v1.12.x`).
 
-### [ ] 17. Config defaults
+### [x] 17. Config defaults
 - **Files:** `backend/app/core/config.py`, `backend/main.py`, `requirements.txt`
 - **Problems and fixes:**
   - `debug=True` by default → `echo=True` prints every SQL query. Default to `False`.
