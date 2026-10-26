@@ -1,9 +1,6 @@
 """Item 7: make/model keep their real casing; filters match case-insensitively."""
 
 import csv
-import importlib
-import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -88,17 +85,6 @@ def test_row_missing_from_csv_keeps_its_name():
 
 
 # ── Qdrant search filter: make matches the lower-cased make_key ──
-@pytest.fixture
-def search_route(monkeypatch):
-    embedder = types.ModuleType("app.etl.embedder")    # avoid the 130 MB model load
-    embedder.embed_query = embedder.get_qdrant = None
-    monkeypatch.setitem(sys.modules, "app.etl.embedder", embedder)
-    monkeypatch.delitem(sys.modules, "app.api.routes.search", raising=False)
-    mod = importlib.import_module("app.api.routes.search")
-    monkeypatch.delitem(sys.modules, "app.api.routes.search")
-    return mod
-
-
 @pytest.mark.parametrize("make", ["BMW", "bmw", " Bmw "])
 def test_search_make_filter_is_case_insensitive(search_route, make):
     [cond] = search_route._build_filter(

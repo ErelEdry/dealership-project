@@ -60,7 +60,7 @@ Check off each box as the task is completed.
 
 ## P1 — Correctness and robustness
 
-### [ ] 8. Blocking calls inside an async route
+### [x] 8. Blocking calls inside an async route
 - **File:** `backend/app/api/routes/search.py`
 - **Problem:** `embed_query(...)` (ONNX model inference) and `get_qdrant().query_points(...)` (sync client) run directly inside `async def` and block the event loop. Every search stalls all other requests, including `/health`.
 - **Fix:** `await asyncio.to_thread(embed_query, req.query)` and `asyncio.to_thread` for the Qdrant query too (or `AsyncQdrantClient`). The same pattern already exists in `embedder.embed_vehicle`.

@@ -8,6 +8,7 @@ relevance order. Results are cached in Redis (best-effort) keyed by the request.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 
@@ -100,9 +101,13 @@ async def search(req: SearchRequest, db: AsyncSession = Depends(get_db)):
 
     # ── 2. Embed + filtered ANN search in Qdrant ──────────────
     # Over-fetch a candidate pool when reranking, then trim to req.limit.
+    # Both calls are synchronous (ONNX inference, sync Qdrant client), so run
+    # them in worker threads — on the event loop they'd stall every other
+    # request, /health included, for the duration of each search.
     candidate_limit = max(req.limit, _RERANK_POOL) if req.rerank else req.limit
-    vector = embed_query(req.query)
-    result = get_qdrant().query_points(
+    vector = await asyncio.to_thread(embed_query, req.query)
+    result = await asyncio.to_thread(
+        get_qdrant().query_points,
         collection_name=settings.qdrant_collection,
         query=vector,
         query_filter=_build_filter(req),
