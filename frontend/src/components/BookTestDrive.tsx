@@ -68,6 +68,10 @@ export default function BookTestDrive({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    // datetime-local gives local wall time with no offset; send the absolute
+    // instant (UTC ISO) so the server doesn't read it as UTC wall time.
+    const when = String(form.get("when") || "");
+    const whenDate = new Date(when);
     setStatus("submitting");
     setError(null);
     try {
@@ -76,7 +80,7 @@ export default function BookTestDrive({
         customer_name: String(form.get("name") || ""),
         customer_email: String(form.get("email") || ""),
         customer_phone: String(form.get("phone") || ""),
-        appointment_datetime: String(form.get("when") || ""),
+        appointment_datetime: isNaN(whenDate.getTime()) ? when : whenDate.toISOString(),
         notes: String(form.get("notes") || "") || undefined,
       });
       setBooking(res);

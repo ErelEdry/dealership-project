@@ -31,7 +31,7 @@ Check off each box as the task is completed.
 - **Fix:** Match `k` only as a whole word (`k\b`); don't parse a number followed by `km|miles|years?|yrs|seats|doors`; a number in 1990–2035 with no currency and no `k` is a year, not a price (optionally map it to `min_year/max_year`); ignore amounts under 1,000 with no currency and no `k`.
 - **Done when:** every example above is a test case in `test_query_intent.py`, all green.
 
-### [ ] 4. Booking with a timezone-aware datetime returns 500 (verified), and timezones are mixed up
+### [x] 4. Booking with a timezone-aware datetime returns 500 (verified), and timezones are mixed up
 - **Files:** `backend/app/schemas/booking.py`, `backend/app/models/booking.py`, `frontend/src/components/BookTestDrive.tsx`
 - **Problem:** `must_be_future` compares against naive `datetime.utcnow()`. Any client that sends `...Z` or an offset gets a `TypeError` that isn't treated as a validation error → 500 instead of 422. Meanwhile the frontend sends local time with no offset (`YYYY-MM-DDTHH:MM`) and the server treats it as UTC: in Israel that's a 2–3 hour gap, both in the "is it in the future" check and in what's stored.
 - **Fix:** In the validator: naive → assume UTC, aware → convert to UTC; compare against `datetime.now(timezone.utc)`. In the frontend send `new Date(value).toISOString()`. Preferably switch to `DateTime(timezone=True)` in the model and a migration. Also replace the remaining `datetime.utcnow` in `booking.py` and the booking model (PROGRESS says this was fixed, but only in inventory).
