@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.inventory import VehicleInventory
+from app.schemas.inventory import make_key
 from app.schemas.search import (
     FacetCount,
     FacetsResponse,
@@ -55,7 +56,7 @@ async def list_vehicles(
     if stock_status and stock_status.lower() != "all":
         conditions.append(VehicleInventory.stock_status == stock_status)
     if make:
-        conditions.append(VehicleInventory.make == make.strip().title())
+        conditions.append(func.lower(VehicleInventory.make) == make_key(make))
     if fuel_type:
         conditions.append(VehicleInventory.fuel_type == fuel_type.strip().lower())
     if body_type:
@@ -114,7 +115,7 @@ async def facets(
     if stock_status and stock_status.lower() != "all":
         dims["stock_status"] = [VehicleInventory.stock_status == stock_status]
     if make:
-        dims["make"] = [VehicleInventory.make == make.strip().title()]
+        dims["make"] = [func.lower(VehicleInventory.make) == make_key(make)]
     if fuel_type:
         dims["fuel_type"] = [VehicleInventory.fuel_type == fuel_type.strip().lower()]
     if body_type:

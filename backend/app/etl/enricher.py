@@ -59,7 +59,7 @@ def _build_specs_string(vehicle: RawVehicle) -> str:
         f"Engine: {vehicle.engine or 'Not specified'}",
         f"Seats: {vehicle.seats or 'Not specified'}",
         f"Mileage: {vehicle.mileage:,} km",
-        f"Price: ${vehicle.price:,.0f}",
+        f"Price: €{vehicle.price:,.0f}",
         f"Condition: {vehicle.condition or 'Not specified'}",
     ]
     if vehicle.features:

@@ -20,6 +20,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.core.segments import normalize_segment
 
 
+def make_key(make: str) -> str:
+    """Normalised make for case-insensitive matching ("BMW", "bmw" → "bmw")."""
+    return make.strip().lower()
+
+
 def utcnow() -> datetime:
     """Timezone-aware UTC now. Replaces the deprecated datetime.utcnow()."""
     return datetime.now(timezone.utc)
@@ -124,8 +129,10 @@ class RawVehicle(BaseModel):
 
     @field_validator("make", "model")
     @classmethod
-    def title_case(cls, v: str) -> str:
-        return v.strip().title()
+    def strip_name(cls, v: str) -> str:
+        # strip() only: .title() turned BMW → Bmw, RAV4 → Rav4, CR-V → Cr-V.
+        # Matching is case-insensitive at query time instead (make_key / lower()).
+        return v.strip()
 
     @field_validator("price", mode="before")
     @classmethod
@@ -154,14 +161,16 @@ class RawVehicle(BaseModel):
         return self
 
     def content_hash(self) -> str:
-        """MD5 of core specs. Used to detect whether re-enrichment is needed."""
-        key = json.dumps({
-            "vin":          self.vin,
-            "price":        self.price,
-            "mileage":      self.mileage,
-            "stock_status": self.stock_status,
-            "features":     sorted(self.features),
-        }, sort_keys=True)
+        """MD5 of every spec field from the source row.
+
+        The pipeline compares it with the stored hash to spot CSV changes (any
+        field: make, year, price, stock status…) and resync that vehicle.
+        Provenance fields (source_file, ingested_at) are excluded so the hash
+        only moves when the vehicle itself changes.
+        """
+        spec = self.model_dump(mode="json", exclude={"source_file", "ingested_at"})
+        spec["features"] = sorted(spec["features"])
+        key = json.dumps(spec, sort_keys=True)
         return hashlib.md5(key.encode()).hexdigest()
 
     model_config = {"use_enum_values": True}
@@ -249,7 +258,7 @@ class EnrichedVehicle(RawVehicle):
             f"{self.year} {self.make} {self.model} {self.trim or ''}".strip(),
             f"Segment: {self.ai_segment or 'N/A'}",
             f"Tags: {', '.join(self.ai_lifestyle_tags)}",
-            f"Price: ${self.price:,.0f}  |  Mileage: {self.mileage:,}km",
+            f"Price: €{self.price:,.0f}  |  Mileage: {self.mileage:,}km",
             f"Fuel: {self.fuel_type or 'N/A'}  |  Transmission: {self.transmission or 'N/A'}",
             f"Seats: {self.seats or 'N/A'}  |  Body: {self.body_type or 'N/A'}",
         ]
@@ -274,6 +283,7 @@ class EnrichedVehicle(RawVehicle):
             "vin":            self.vin,
             "dealer_id":      self.dealer_id,
             "make":           self.make,
+            "make_key":       make_key(self.make),   # case-insensitive filter key
             "model":          self.model,
             "year":           self.year,
             "price":          self.price,

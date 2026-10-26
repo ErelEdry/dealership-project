@@ -71,6 +71,13 @@ class TestDirection:
         ("luxury suv", "high"),
         ("premium sedan", "high"),
         ("fast electric car with long range", None),
+        ("economy car", "low"),
+        ("cheap car with good fuel economy", "low"),   # "cheap" still counts
+        ("fuel economy hatchback", None),     # running costs, not price
+        ("good fuel economy", None),
+        ("great resale value", None),
+        ("high value sedan", None),
+        ("luxury suv with great fuel economy", "high"),
     ])
     def test_direction(self, q, direction):
         assert parse_price_intent(q)[2] == direction
@@ -84,6 +91,36 @@ class TestNoFalsePositives:
     def test_seat_count_is_not_a_price(self):
         # "5 seats" has no relational keyword, so it must not become a bound
         assert parse_price_intent("suv with 5 seats") == (None, None, None)
+
+    @pytest.mark.parametrize("q", [
+        "car under 50000 km",          # the k of "km" is not thousands shorthand
+        "car under 50,000 km",         # nor may "50,000" shrink to "50" to dodge it
+        "under 50k km",
+        "under 100000 miles",
+        "suv from 2018 to 2022",       # model years, not a €2018-2022 band
+        "between 2015 and 2020",
+        "under 5 years old",           # bare amount far too small to be a price
+        "at least 7 seats",
+        "more than 3 doors",
+        "under 20kw",
+    ])
+    def test_specs_are_not_prices(self, q):
+        assert parse_price_intent(q) == (None, None, None)
+
+    def test_year_range_does_not_hide_a_real_price(self):
+        assert parse_price_intent("from 2018 to 2022 under 30k")[:2] == (None, 30000)
+
+    def test_mileage_does_not_hide_a_real_price(self):
+        assert parse_price_intent("under 100000 km and under 20k")[:2] == (None, 20000)
+
+    @pytest.mark.parametrize("q,expected", [
+        ("under €500", 500),           # a currency marker makes even small amounts prices
+        ("under eur 15000", 15000),
+        ("under €2020", 2020),         # ...and year-like ones
+        ("under 20000.", 20000),       # trailing punctuation
+    ])
+    def test_marked_amounts_still_count(self, q, expected):
+        assert parse_price_intent(q)[1] == expected
 
 
 # ── query_terms ──────────────────────────────────────────────
@@ -125,3 +162,22 @@ class TestLexBonus:
                  "delta", "epsilon", "zeta", "eta", "theta"}
         # 2 strong (0.04) + 8 weak (0.064) = 0.104 → clamped to the cap
         assert lex_bonus(terms, v) == pytest.approx(BONUS_CAP)
+
+    @pytest.mark.parametrize("term,veh", [
+        ("ev", dict(make="Chevrolet", model="Onix")),     # "ev" inside "chevrolet"
+        ("3", dict(make="Mazda", model="Mazda3")),        # "3" inside "mazda3"
+        ("eco", dict(ai_lifestyle_tags=["economical"])),  # "eco" inside a tag
+        ("cross", dict(model="Corolla")),
+    ])
+    def test_no_substring_hits(self, term, veh):
+        assert lex_bonus({term}, _veh(**veh)) == 0.0
+
+    @pytest.mark.parametrize("terms,veh,expected", [
+        ({"model", "3"}, dict(make="Tesla", model="Model 3"), 0.04),
+        ({"cr"}, dict(make="Honda", model="CR-V"), 0.02),           # hyphenated model
+        ({"mercedes"}, dict(make="Mercedes-Benz", model="GLE"), 0.02),
+        ({"family"}, dict(ai_lifestyle_tags=["family-friendly"]), 0.008),
+        ({"suv"}, dict(ai_segment="Compact SUV"), 0.008),
+    ])
+    def test_whole_token_hits(self, terms, veh, expected):
+        assert lex_bonus(terms, _veh(**veh)) == pytest.approx(expected)

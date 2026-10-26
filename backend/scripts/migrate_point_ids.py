@@ -22,6 +22,7 @@ from qdrant_client.models import PointStruct
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
+from app.core.cache import clear_search_cache
 from app.core.config import settings
 from app.etl.embedder import _qdrant, vin_to_point_id
 
@@ -125,4 +126,7 @@ def main(apply: bool) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Re-key Qdrant point IDs to deterministic VIN hashes")
     ap.add_argument("--apply", action="store_true", help="perform the migration (default: dry run)")
-    main(ap.parse_args().apply)
+    args = ap.parse_args()
+    main(args.apply)
+    if args.apply:
+        clear_search_cache()

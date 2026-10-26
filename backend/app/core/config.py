@@ -4,8 +4,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # App
     environment: str = "development"
-    debug:       bool = True
+    debug:       bool = False   # True echoes every SQL statement (database.py)
     secret_key:  str = "changeme"
+    # Required in the X-Admin-Token header for admin-only endpoints (the
+    # bookings listing). Empty = those endpoints are disabled.
+    admin_token: str = ""
+
+    # Browser origins allowed by CORS, comma-separated
+    # (e.g. "http://localhost:3000,https://cars.example.com").
+    cors_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:changeme@localhost:5432/dealership"

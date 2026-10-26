@@ -8,6 +8,7 @@ relevance order. Results are cached in Redis (best-effort) keyed by the request.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 
@@ -18,11 +19,13 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue, Range
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import CACHE_TTL, SEARCH_CACHE_PREFIX
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.query_intent import lex_bonus, parse_price_intent, query_terms
 from app.etl.embedder import embed_query, get_qdrant
 from app.models.inventory import VehicleInventory
+from app.schemas.inventory import make_key
 from app.schemas.search import SearchHit, SearchRequest, SearchResponse, VehicleOut
 
 log = structlog.get_logger()
@@ -30,7 +33,6 @@ router = APIRouter()
 
 # Best-effort cache — search never fails just because Redis is down.
 _redis = aioredis.from_url(settings.redis_url, decode_responses=True)
-CACHE_TTL = 300  # seconds
 
 # ── Hybrid lexical rerank + budget intent ────────────────────
 # Over-fetch ANN candidates, then add a *bounded* lexical bonus so exact
@@ -47,15 +49,16 @@ _PRICE_W     = 0.5  # weight of the budget/luxury price preference on ordering
 def _build_filter(req: SearchRequest) -> Filter | None:
     """Translate the request's structured filters into a Qdrant payload filter.
 
-    Values are normalised to how the payload stores them: make is title-cased,
-    fuel/body are lower-cased enum values, segment/stock_status are verbatim.
+    Values are normalised to how the payload stores them: make matches the
+    lower-cased `make_key` field (so "bmw" and "BMW" both work), fuel/body are
+    lower-cased enum values, segment/stock_status are verbatim.
     """
     must: list[FieldCondition] = []
 
     if req.stock_status and req.stock_status.lower() != "all":
         must.append(FieldCondition(key="stock_status", match=MatchValue(value=req.stock_status)))
     if req.make:
-        must.append(FieldCondition(key="make", match=MatchValue(value=req.make.strip().title())))
+        must.append(FieldCondition(key="make_key", match=MatchValue(value=make_key(req.make))))
     if req.fuel_type:
         must.append(FieldCondition(key="fuel_type", match=MatchValue(value=req.fuel_type.strip().lower())))
     if req.body_type:
@@ -75,7 +78,7 @@ def _build_filter(req: SearchRequest) -> Filter | None:
 @router.post("", response_model=SearchResponse)
 @router.post("/", response_model=SearchResponse, include_in_schema=False)
 async def search(req: SearchRequest, db: AsyncSession = Depends(get_db)):
-    cache_key = "search:" + hashlib.sha1(req.model_dump_json().encode()).hexdigest()
+    cache_key = SEARCH_CACHE_PREFIX + hashlib.sha1(req.model_dump_json().encode()).hexdigest()
 
     # ── 1. Cache lookup (best-effort) ─────────────────────────
     try:
@@ -98,9 +101,13 @@ async def search(req: SearchRequest, db: AsyncSession = Depends(get_db)):
 
     # ── 2. Embed + filtered ANN search in Qdrant ──────────────
     # Over-fetch a candidate pool when reranking, then trim to req.limit.
+    # Both calls are synchronous (ONNX inference, sync Qdrant client), so run
+    # them in worker threads — on the event loop they'd stall every other
+    # request, /health included, for the duration of each search.
     candidate_limit = max(req.limit, _RERANK_POOL) if req.rerank else req.limit
-    vector = embed_query(req.query)
-    result = get_qdrant().query_points(
+    vector = await asyncio.to_thread(embed_query, req.query)
+    result = await asyncio.to_thread(
+        get_qdrant().query_points,
         collection_name=settings.qdrant_collection,
         query=vector,
         query_filter=_build_filter(req),

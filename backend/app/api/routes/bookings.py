@@ -2,23 +2,27 @@
 Phase 4 — Test-drive bookings.
 
     POST /api/bookings        create a test-drive request for a vehicle
-    GET  /api/bookings        recent bookings (demo/admin listing)
+    GET  /api/bookings        recent bookings — admin only (X-Admin-Token)
     GET  /api/bookings/{id}   one booking
 
 The data layer (model, schemas, migrated `bookings` table) was scaffolded in
 Phase 1; this wires it to the API. A booking references a vehicle by VIN — we
 404 if the VIN is unknown, and 409 if that exact slot (same vehicle + datetime)
-is already held by an active booking.
+is already held by an active booking. The slot rule is enforced by a partial
+unique index (migration 002); the SELECT below is only the fast, friendly path.
 """
 
 from __future__ import annotations
 
+import secrets
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.booking import Booking
 from app.models.inventory import VehicleInventory
@@ -28,6 +32,11 @@ router = APIRouter()
 
 # Statuses that still hold a time slot (so it can't be double-booked).
 _ACTIVE = ("pending", "confirmed")
+
+# DB constraints from migration 002, mapped to the HTTP error they mean.
+_SLOT_INDEX = "uq_bookings_active_slot"
+_VIN_FK = "fk_bookings_vehicle_vin"
+_SLOT_TAKEN = "That time slot is already taken — please pick another."
 
 
 @router.post("", response_model=BookingResponse, status_code=201)
@@ -53,7 +62,7 @@ async def create_booking(body: BookingCreate, db: AsyncSession = Depends(get_db)
     if clash is not None:
         raise HTTPException(
             status_code=409,
-            detail="That time slot is already taken — please pick another.",
+            detail=_SLOT_TAKEN,
         )
 
     booking = Booking(
@@ -65,13 +74,39 @@ async def create_booking(body: BookingCreate, db: AsyncSession = Depends(get_db)
         notes=body.notes,
     )
     db.add(booking)
-    await db.flush()       # populate id / created_at defaults
-    await db.refresh(booking)
+    # Commit here rather than in get_db after the response is built, so a
+    # constraint violation (a concurrent request won the slot) becomes a 409
+    # instead of escaping as a 500.
+    try:
+        await db.flush()       # populate id / created_at defaults
+        await db.refresh(booking)
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        violated = str(e.orig)
+        if _SLOT_INDEX in violated:
+            raise HTTPException(status_code=409, detail=_SLOT_TAKEN) from e
+        if _VIN_FK in violated:
+            raise HTTPException(status_code=404, detail=f"Vehicle {vin} not found") from e
+        raise
     return BookingResponse.model_validate(booking)
 
 
-@router.get("", response_model=list[BookingResponse])
-@router.get("/", response_model=list[BookingResponse], include_in_schema=False)
+def require_admin(x_admin_token: str | None = Header(None)) -> None:
+    """Gate admin-only endpoints on the X-Admin-Token header.
+
+    Fails closed: with no ADMIN_TOKEN configured the endpoint is disabled, so a
+    fresh install never exposes customer data by default.
+    """
+    if not settings.admin_token:
+        raise HTTPException(status_code=403, detail="Admin endpoints are disabled")
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, settings.admin_token):
+        raise HTTPException(status_code=401, detail="Missing or invalid admin token")
+
+
+@router.get("", response_model=list[BookingResponse], dependencies=[Depends(require_admin)])
+@router.get("/", response_model=list[BookingResponse], include_in_schema=False,
+            dependencies=[Depends(require_admin)])
 async def list_bookings(
     db: AsyncSession = Depends(get_db),
     vin: str | None = Query(None, description="Filter to one vehicle"),

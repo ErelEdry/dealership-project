@@ -11,6 +11,7 @@ psycopg2-binary==2.9.9     # sync driver for Alembic CLI
 # ── Validation ─────────────────────────────────────────────
 pydantic==2.7.1
 pydantic-settings==2.3.0
+email-validator==2.3.0     # EmailStr (bookings); newer fastapi no longer pulls it in
 
 # ── Caching ────────────────────────────────────────────────
 redis==5.0.4

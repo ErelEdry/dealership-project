@@ -28,7 +28,7 @@ Not a filter-dropdown car site — you *talk* to it (*"cheap fuel-efficient city
 - **Idempotent, multi-store data ops** — deterministic per-VIN functions keep PostgreSQL, the Qdrant payload, and the source CSV in sync; re-runs never duplicate or drift.
 - **Bespoke "Night-Drive HMI" UI** — a dark automotive-instrument aesthetic with a match-score gauge, per-body-type car silhouettes, live range filters, and a working test-drive booking flow.
 - **Measured, not just built** — a retrieval eval harness scores precision@k / recall@k / MRR / nDCG on a labelled query set and shows the hybrid rerank beats pure ANN.
-- **Tested + CI** — 80 unit tests (pytest) and a GitHub Actions pipeline (ruff + pytest + frontend build).
+- **Tested + CI** — 202 unit tests (pytest) and a GitHub Actions pipeline (ruff + pytest + frontend build).
 
 ---
 
@@ -75,7 +75,7 @@ flowchart TD
 
 - **Validation with quarantine** — bad rows are routed to a `validation_errors` table, never silently dropped.
 - **Deterministic vector IDs** — Qdrant point ID = `MD5(VIN)`, so re-embedding *updates* a point instead of orphaning the old one (Python's `hash()` is per-process randomised — a real footgun this avoids).
-- **Canonical segments** — free-text LLM output is snapped onto a fixed 18-value vocabulary so `ai_segment` works as a filter facet.
+- **Canonical segments** — free-text LLM output is snapped onto a fixed 18-value vocabulary (17 segments + `Other`) so `ai_segment` works as a filter facet.
 
 ---
 
@@ -105,7 +105,7 @@ flowchart TD
 | Detail | Book a test drive |
 |---|---|
 | ![detail](docs/screenshots/04-detail.png) | ![booking](docs/screenshots/05-booking.png) |
-| Spec sheet, AI summary, confidence gauge. | Validated booking flow (404 / 409 / 422 handled). |
+| Spec sheet, AI summary, confidence gauge. | Booking flow: 404 unknown car, 409 sold or slot taken (enforced by a DB unique index, so concurrent requests can't double-book), 422 invalid input or past time (any timezone). |
 
 *The gauge on each card is the semantic match %; the tiles use per-body-type car silhouettes since the sample data has no image URLs.*
 
@@ -117,8 +117,9 @@ flowchart TD
 
 ```bash
 # 1. Whole stack — API, PostgreSQL, Redis, Qdrant, and the Next.js UI
-cp .env.example .env          # fill in POSTGRES_PASSWORD etc.
-docker compose up -d          # builds the web image on first run
+cp .env.example .env          # set POSTGRES_PASSWORD; GROQ_API_KEY is needed for enrichment
+docker compose up -d          # builds the web image on first run; the api applies
+                              # Alembic migrations (alembic upgrade head) on start
 curl http://localhost:8000/health
 
 # 2. Populate the inventory (validate → enrich → embed)
@@ -139,6 +140,40 @@ cd frontend && npm install && npm run dev
 
 Try a search: *"cheap fuel efficient city car for a student"*, *"luxury electric SUV"*, or *"family SUV between 30k and 40k"*.
 
+**Optional settings** (`.env`): `ADMIN_TOKEN` enables the admin-only booking
+listing (`GET /api/bookings` with header `X-Admin-Token`); `CORS_ORIGINS` lists
+the browser origins allowed to call the API (comma-separated); `DEBUG=true`
+logs every SQL query.
+
+<details><summary>Upgrading an existing install (data from before the review fixes)</summary>
+
+A fresh install needs none of this. On a stack that already holds data, run
+once after pulling:
+
+```bash
+docker compose up -d --build --force-recreate api   # applies migration 002 on start
+docker compose exec api alembic current             # expect: 002 (head)
+
+# Restore make/model casing (Bmw → BMW, Rav4 → RAV4) in PostgreSQL, the Qdrant
+# payload and the AI text; also adds the make_key the search filter now uses.
+docker compose exec api python -m scripts.fix_name_casing           # dry run
+docker compose exec api python -m scripts.fix_name_casing --apply
+
+# The change-detection hash now covers every spec field, so the first run
+# resyncs every vehicle: local re-embed, no LLM calls, a few minutes.
+docker compose exec api python -m app.etl.pipeline
+```
+
+- **Migration 002** converts booking times to `timestamptz` and adds a unique
+  index (one active booking per vehicle + slot) and a foreign key to the
+  inventory. It stops with an error if existing bookings already break either
+  rule; fix those rows by hand, then restart the `api` container.
+- Until `fix_name_casing --apply` has run, filtering search by make returns
+  nothing, because existing Qdrant points have no `make_key` yet.
+- Bookings made before the fix were stored as the browser's local time labelled
+  UTC; there is no way to tell which rows are affected, so they are left as-is.
+</details>
+
 ---
 
 ## Testing & CI
@@ -147,11 +182,14 @@ Try a search: *"cheap fuel efficient city car for a student"*, *"luxury electric
 docker compose exec api sh -c "pip install -r requirements-dev.txt && pytest"
 ```
 
-**80 unit tests** cover the logic that carries real risk (no DB/network needed):
+**202 unit tests** cover the logic that carries real risk (no DB/network needed):
 budget-intent parsing, lexical rerank, segment normalisation, the deterministic
-pricing model, and the ingestion/booking validators. The pure query helpers were
-extracted into `app/core/query_intent.py` specifically so they're testable
-without pulling in the embedding model.
+pricing model, the ingestion/booking validators, the ETL pipeline's skip /
+resync / quarantine decisions, and the search/vehicles/bookings routes against
+stubbed stores. The pure query helpers were extracted into
+`app/core/query_intent.py` specifically so they're testable without pulling in
+the embedding model. One more test (`test_booking_race.py`) fires concurrent
+bookings at a real PostgreSQL; it runs only when `TEST_DATABASE_URL` is set.
 
 > These tests caught a real bug — `"no more than 30k"` was also setting a *lower*
 > bound (the `over` pattern's `"more than"` matched inside it), fixed with a
@@ -169,7 +207,8 @@ and compares **pure vector search (ANN)** against the **hybrid lexical rerank**.
 Relevance is predicate-based — a result counts as relevant if its
 segment/body/fuel is in the query's allowed set and its price is within the
 stated band — a scalable, explainable proxy for human judgment, evaluated over
-available stock (18 queries, k=10):
+available stock (18 queries, k=10). *Measured before the lexical-rerank and
+budget-word fixes on the `fixes/review` branch; re-run to refresh.*
 
 | | P@5 | P@10 | R@10 | MRR | nDCG@10 |
 |---|---|---|---|---|---|
@@ -211,7 +250,7 @@ dealership-ai/
 │  │  └─ schemas/          Pydantic schemas
 │  ├─ scripts/             idempotent data migrations (prices, stock, segments)
 │  ├─ eval/                retrieval eval harness (precision@k / MRR / nDCG)
-│  ├─ tests/               80 unit tests (pytest)
+│  ├─ tests/               202 unit tests (pytest) + 1 opt-in DB test
 │  └─ alembic/             schema migrations
 ├─ frontend/               Next.js 16 app (App Router, TypeScript) + Dockerfile
 ├─ docs/screenshots/

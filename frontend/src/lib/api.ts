@@ -29,12 +29,14 @@ function qs(params: object): string {
 
 export async function searchVehicles(
   body: SearchRequest,
+  signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const res = await fetch(`${API_URL}/api/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
+    signal,
   });
   if (!res.ok) throw new Error(`Search failed (${res.status})`);
   return res.json();
@@ -86,7 +88,7 @@ export async function createBooking(
 }
 
 export async function getVehicle(vin: string): Promise<Vehicle | null> {
-  const res = await fetch(`${API_URL}/api/vehicles/${vin}`, {
+  const res = await fetch(`${API_URL}/api/vehicles/${encodeURIComponent(vin)}`, {
     cache: "no-store",
   });
   if (res.status === 404) return null;

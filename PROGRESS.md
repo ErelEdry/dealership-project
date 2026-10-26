@@ -3,7 +3,7 @@
 **Last verified:** 2026-08-18 · **Status:** Phases 1–2 complete · issues #1, #3 & #6 fixed · Phase 3 built (+ budget-intent search) · Phase 4 redesigned (Night-Drive HMI) · **unit tests + CI · retrieval eval · full-stack Docker**
 
 > This is a *current state* snapshot. For the chronological build history and
-> the errors hit along the way, see [SESSION_LOG.md](SESSION_LOG.md).
+> the errors hit along the way, see [docs/SESSION_LOG.md](docs/SESSION_LOG.md).
 
 ---
 
@@ -33,7 +33,7 @@ Verified by direct query on 2026-08-17:
 | Validation quarantine (`validation_errors`) | 0 rows |
 | Avg AI confidence | 0.787 |
 | Flagged `needs_review` (confidence < 0.7) | 55 |
-| Distinct `ai_segment` (canonical vocab) | 15 (of 17) |
+| Distinct `ai_segment` (canonical vocab) | 15 (of 18 = 17 segments + `Other`) |
 | Distinct makes | 20 |
 | Model years | 2000–2025 |
 | Price range | €5,000 – €93,750 *(regenerated to realistic values — issue #6)* |
@@ -76,7 +76,10 @@ docker compose up -d
 # Health check
 curl http://localhost:8000/health
 
-# Pipeline — skips already-enriched vehicles unless --force
+# Pipeline — skips vehicles whose CSV row is unchanged (content_hash); resyncs
+# changed ones from their stored AI fields (local re-embed, no LLM); only new or
+# unindexed vehicles (or --force) are enriched with Groq. Invalid rows are
+# quarantined in validation_errors.
 docker compose exec api python -m app.etl.pipeline --limit 10
 docker compose exec api python -m app.etl.pipeline
 
@@ -92,7 +95,16 @@ docker compose exec api python -m scripts.rebalance_stock_status
 # Regenerate realistic prices across DB + Qdrant + CSV; also fixes $→€ in
 # summaries and recomputes acquisition_cost (idempotent; --apply to write)
 docker compose exec api python -m scripts.regenerate_prices
+
+# Restore make/model casing (BMW, RAV4, CR-V) from the CSV across DB + Qdrant
+# (+ make_key payload used by the search filter) — no LLM (--apply to write)
+docker compose exec api python -m scripts.fix_name_casing
+
+# Every --apply above (and any pipeline run that writes) clears the search cache.
 ```
+
+Schema migrations run automatically when the `api` container starts
+(`alembic upgrade head`).
 
 **Interfaces:** API docs `:8000/docs` · Qdrant dashboard `:6333/dashboard` · pgAdmin `:5050`
 
@@ -113,7 +125,7 @@ docker compose exec api python -m scripts.regenerate_prices
 
 ## Testing & CI
 
-**80 unit tests, all green** (`backend/tests/`, pytest). Focused on the pure
+**202 unit tests, all green** (`backend/tests/`, pytest) + 1 opt-in DB test. Focused on the pure
 logic that carries real risk — no DB/network needed, so they run in seconds:
 - `test_query_intent.py` — budget-intent parsing (explicit bounds, EU/US
   separators, `k`/`grand`, qualitative direction, false-positive guards) +
@@ -125,8 +137,20 @@ logic that carries real risk — no DB/network needed, so they run in seconds:
   segment ordering, depreciation, `acquisition_cost < price`, `$→€` rewrite.
 - `test_ingestion_schema.py` — `RawVehicle` coercion (VIN upper, price/mileage
   string parsing, enum values) + constraints + anomaly flags.
-- `test_booking_schema.py` — `BookingCreate` validators (future date, phone
-  clean, name title, email, min-length).
+- `test_booking_schema.py` — `BookingCreate` validators (future date in any
+  timezone, phone clean, name title, email, min-length).
+- `test_booking_api.py` — `POST /api/bookings` against a stub session:
+  201/404/409/422 (never 500 for `Z` / offset / naive times), unique-slot and
+  FK violations mapped to 409/404, admin token on the listing.
+- `test_booking_race.py` — two concurrent requests for one slot on a real
+  PostgreSQL → one 201, one 409 (runs only with `TEST_DATABASE_URL`).
+- `test_pipeline.py` — embedding failures retried, unchanged rows skipped,
+  changed rows resynced without the LLM, every column upserted, invalid rows
+  quarantined, search cache cleared after writes.
+- `test_name_casing.py` — `fix_name_casing` planning (idempotent) and
+  case-insensitive make filters in search and listing.
+- `test_search_route.py`, `test_cache.py`, `test_config.py` — search doesn't
+  block the event loop; cache clearing; config defaults (debug off, CORS).
 
 **Refactor for testability:** the pure query helpers were extracted from
 `app/api/routes/search.py` into [app/core/query_intent.py](backend/app/core/query_intent.py)
@@ -143,9 +167,10 @@ a backend job (`ruff check --select F` + `pytest`) and a frontend job
 docker compose exec api sh -c "pip install -r requirements-dev.txt && pytest"
 ```
 
-**Not yet tested:** API integration paths (search/vehicles/bookings) — they need
-the live stack (Postgres/Qdrant/Redis/embeddings), so they're excluded from the
-fast unit CI; the endpoints are verified manually in the sections above.
+**Not yet tested end-to-end:** the routes are unit-tested against stubbed
+stores, but full integration runs (real Postgres/Qdrant/Redis/embeddings) need
+the live stack and stay out of the fast CI — apart from the opt-in booking race
+test above.
 
 ### Retrieval evaluation harness
 
@@ -155,7 +180,8 @@ queries) and compares pure ANN vs the hybrid rerank. Relevance is predicate-base
 (segment/body/fuel/price band = a scalable proxy for human labels), evaluated
 over available stock. Metrics: precision@k, recall@k, MRR, nDCG@k.
 
-**Result (k=10): hybrid rerank beats pure ANN on every metric** —
+**Result (k=10, measured before the review fixes to lexical matching and
+budget words — re-run to refresh): hybrid rerank beats pure ANN on every metric** —
 P@5 0.844→0.911, P@10 0.789→0.844, MRR 0.944→**1.000**, nDCG@10 0.832→0.893.
 Run: `docker compose exec api python -m eval.run_eval --detail`.
 
@@ -198,11 +224,11 @@ not-yet-migrated vehicle. The cutoff is fixed at 2026-08-17, so repeated daily
 runs keep skipping already-done rows and self-terminate once all 831 are done
 (~5–6 days on the 200k-TPD free tier, or one shot on Dev Tier).
 
-**Automated** via a Windows Scheduled Task `DealershipAI-ReenrichProvenance`
-(daily 09:00) that runs [daily_reenrich.ps1](daily_reenrich.ps1): brings the
-stack up, runs the resume command, and **disables itself** once
-`scripts.reenrich_status` reports 0 stale rows. Logs to `logs/reenrich_*.log`.
-Manage it with:
+**Optional automation (Windows):** [daily_reenrich.ps1](daily_reenrich.ps1)
+brings the stack up, runs the resume command, and once `scripts.reenrich_status`
+reports 0 stale rows **disables its own scheduled task**
+(`DealershipAI-ReenrichProvenance`). Logs go to `logs/reenrich_*.log`. The
+script's header shows how to register the daily task; manage it with:
 ```powershell
 Get-ScheduledTaskInfo DealershipAI-ReenrichProvenance   # status / next run
 Start-ScheduledTask    DealershipAI-ReenrichProvenance   # run now
@@ -242,9 +268,17 @@ is ready, leaving `/app` empty and uvicorn logging `Could not import module "mai
 Environmental, not fixable from compose. Clear it with:
 `docker compose up -d --force-recreate api`
 
+### 7. Docker images not pinned yet
+`qdrant/qdrant` and `dpage/pgadmin4` still use `:latest` (FIXES.md #16). They
+should be pinned to the versions the existing volumes were created with: a
+server can't open storage written by a newer version, so pinning lower than
+what's running would break the current data. Check with
+`docker compose exec qdrant sh -c 'wget -qO- localhost:6333'` and pin that.
+
 ### 5. Minor
 - ✅ `datetime.utcnow()` deprecation fixed — replaced with a tz-aware `utcnow()`
-  helper in `app/models/inventory.py` and `app/schemas/inventory.py`.
+  helper in `app/models/inventory.py`, `app/schemas/inventory.py` and (after the
+  review) the booking model/schema too.
 - ✅ Unused `csv` import removed from `app/etl/pipeline.py`.
 - Source CSV has no `trim`, `engine`, `doors`, `colour_*`, or `features` columns,
   so enrichment runs on a thinner spec sheet than the schema allows for. *(data
@@ -283,7 +317,7 @@ Endpoints are live in [main.py](backend/main.py) and tested end-to-end.
   segment/body/fuel/tags (0.008 each), re-sort, trim. Dependency-free; a clean
   seam to swap in Cohere / a cross-encoder later.
 - **Budget-intent parsing** (`parse_price_intent` in
-  [search.py](backend/app/api/routes/search.py)): natural-language price cues in
+  [query_intent.py](backend/app/core/query_intent.py)): natural-language price cues in
   the query become structured constraints. Explicit relational amounts
   (*"under €20k"*, *"between 30k and 40k"*, *"around 25k"*; EU/US separators,
   `k`/`grand`) → a **hard Qdrant price filter**. Qualitative words
@@ -314,7 +348,8 @@ exclusion in `/facets`, and budget-intent parsing (see above).
 
 Lives in [frontend/](frontend/). **Next.js 16 + React 19 + Tailwind v4** (App
 Router, TypeScript, `src/`). Runs locally on `:3000` against the API on `:8000`
-(CORS already allows that origin). Not containerised yet.
+(allowed via the `CORS_ORIGINS` setting). Containerised too — see
+[Full-stack Docker](#full-stack-docker-done) below.
 
 **Design system — "Night-Drive Instrument Cluster".** Replaced the default
 indigo/slate MVP look with a dark automotive-HMI identity in
@@ -371,15 +406,19 @@ end-to-end.
 - **API** — [routes/bookings.py](backend/app/api/routes/bookings.py), registered
   in [main.py](backend/main.py):
   - `POST /api/bookings` — validates the body (name/email/phone, future
-    appointment), **404** if the VIN is unknown, **409** if the vehicle is sold
+    appointment; naive times are read as UTC, offsets converted, stored as
+    `timestamptz`), **404** if the VIN is unknown, **409** if the vehicle is sold
     or that exact slot (same VIN + datetime) is already held by an active
-    booking, else **201** with the created record.
-  - `GET /api/bookings?vin=&limit=` — recent bookings (demo/admin listing).
+    booking — enforced by a partial unique index (migration 002), so concurrent
+    requests get one 201 and one 409 — else **201** with the created record.
+  - `GET /api/bookings?vin=&limit=` — recent bookings, **admin only**: needs
+    header `X-Admin-Token` = `ADMIN_TOKEN` (disabled when that's unset).
   - `GET /api/bookings/{id}` — one booking (404 on miss).
 - **Frontend** — [BookTestDrive.tsx](frontend/src/components/BookTestDrive.tsx):
   the detail-page button opens an accessible modal (role=dialog, ESC/backdrop
   close, focus management, scroll lock, `datetime-local` min = now+1h) → posts
-  via [createBooking](frontend/src/lib/api.ts) → shows a confirmation with the
+  via [createBooking](frontend/src/lib/api.ts) (the picked local time is sent
+  as a UTC ISO instant) → shows a confirmation with the
   booking ref, status and appointment. Server error messages (409/404/422)
   surface inline. Dates pinned to `en-IE` to match the €/price formatting.
 - **Verified** — all API paths (201/404/409/422) tested; driven live in headless

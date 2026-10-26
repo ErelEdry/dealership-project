@@ -30,6 +30,7 @@ from pathlib import Path
 from qdrant_client import QdrantClient
 from sqlalchemy import bindparam, create_engine, text
 
+from app.core.cache import clear_search_cache
 from app.core.config import settings
 
 # ── Target distribution (cumulative thresholds on a 0–1 hash) ─
@@ -142,4 +143,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Rebalance stock_status to ~85% available")
     ap.add_argument("--apply", action="store_true", help="Write changes (default: dry run)")
     ap.add_argument("--csv", default=DEFAULT_CSV, help="Path to source CSV")
-    main(ap.parse_args().apply, ap.parse_args().csv)
+    args = ap.parse_args()
+    main(args.apply, args.csv)
+    if args.apply:
+        clear_search_cache()

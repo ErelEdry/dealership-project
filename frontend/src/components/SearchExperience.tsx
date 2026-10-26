@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { searchVehicles } from "@/lib/api";
 import type { SearchResponse } from "@/lib/types";
 import VehicleCard from "./VehicleCard";
@@ -18,21 +18,33 @@ export default function SearchExperience() {
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The in-flight search. A new search aborts it, so a slow earlier response
+  // can never land on screen under a newer query (e.g. two quick chip clicks).
+  const inFlight = useRef<AbortController | null>(null);
+
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   async function run(q: string) {
     const text = q.trim();
     if (!text) return;
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
     setQuery(text);
     setLoading(true);
     setError(null);
     try {
-      const res = await searchVehicles({ query: text, limit: 12 });
+      const res = await searchVehicles({ query: text, limit: 12 }, controller.signal);
       setData(res);
     } catch (e) {
+      if (controller.signal.aborted) return; // superseded — leave state to the newer search
       setError(e instanceof Error ? e.message : "Search failed");
       setData(null);
     } finally {
-      setLoading(false);
+      if (inFlight.current === controller) {
+        inFlight.current = null;
+        setLoading(false);
+      }
     }
   }
 
