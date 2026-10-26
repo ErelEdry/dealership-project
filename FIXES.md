@@ -9,7 +9,7 @@ Check off each box as the task is completed.
 
 ## P0 — Breaks behavior
 
-### [ ] 1. `.env.example` breaks API startup
+### [x] 1. `.env.example` breaks API startup
 - **File:** `.env.example`
 - **Problem:** It sets `EMBEDDING_MODEL=models/text-embedding-004` (a Gemini model name). Anyone who runs `cp .env.example .env` as the Quickstart says overrides the `BAAI/bge-base-en-v1.5` default, and `TextEmbedding(...)` in `embedder.py` fails at import time. `GROQ_API_KEY` is missing (no enrichment without it), and there are unused Gemini and Cohere keys.
 - **Fix:** Remove `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` (or set them to the bge values), add `GROQ_API_KEY=`, remove `GEMINI_API_KEY`.

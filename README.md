@@ -117,7 +117,7 @@ flowchart TD
 
 ```bash
 # 1. Whole stack — API, PostgreSQL, Redis, Qdrant, and the Next.js UI
-cp .env.example .env          # fill in POSTGRES_PASSWORD etc.
+cp .env.example .env          # set POSTGRES_PASSWORD; GROQ_API_KEY is needed for enrichment
 docker compose up -d          # builds the web image on first run
 curl http://localhost:8000/health
 
