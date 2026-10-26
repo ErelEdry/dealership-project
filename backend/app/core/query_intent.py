@@ -63,8 +63,11 @@ def lex_bonus(terms: set[str], v) -> float:
 
 _BUDGET_LOW = {
     "cheap", "cheapest", "cheaper", "budget", "affordable", "inexpensive",
-    "economical", "economy", "bargain", "low-cost", "lowcost", "value",
+    "economical", "economy", "bargain", "low-cost", "lowcost",
 }
+# "value" is left out on purpose: "resale value" / "high value" aren't budget
+# cues. "economy" counts ("economy car") except in "fuel economy", which is
+# about running costs, not the price.
 _BUDGET_HIGH = {
     "luxury", "luxurious", "premium", "high-end", "upscale", "expensive",
     "exclusive", "flagship", "top-tier", "prestige",
@@ -152,6 +155,8 @@ def parse_price_intent(query: str) -> tuple[float | None, float | None, str | No
             if c is not None:
                 min_p, max_p = 0.85 * c, 1.15 * c
 
-    toks = set(re.findall(r"[a-z][a-z-]*", q))
+    words = re.findall(r"[a-z][a-z-]*", q)
+    toks = {w for i, w in enumerate(words)
+            if not (w == "economy" and i > 0 and words[i - 1] == "fuel")}
     direction = "low" if toks & _BUDGET_LOW else "high" if toks & _BUDGET_HIGH else None
     return min_p, max_p, direction

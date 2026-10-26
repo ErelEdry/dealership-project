@@ -90,7 +90,7 @@ Check off each box as the task is completed.
 - **Problem:** `t in strong` is a substring check, so `ev` matches `chevrolet`.
 - **Fix:** Tokenize make/model/tags and check set membership. Run `eval.run_eval` before and after to make sure the metrics don't drop.
 
-### [ ] 13. `economy` and `value` trigger "cheap" intent
+### [x] 13. `economy` and `value` trigger "cheap" intent
 - **File:** `backend/app/core/query_intent.py`
 - **Problem:** `"fuel economy hatchback"` → `direction="low"` (verified), i.e. sorting by price when the user didn't ask for it.
 - **Fix:** Remove `economy` (and consider `value`) from `_BUDGET_LOW`, or ignore it when the previous word is `fuel`. Add a test.

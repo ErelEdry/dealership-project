@@ -71,6 +71,13 @@ class TestDirection:
         ("luxury suv", "high"),
         ("premium sedan", "high"),
         ("fast electric car with long range", None),
+        ("economy car", "low"),
+        ("cheap car with good fuel economy", "low"),   # "cheap" still counts
+        ("fuel economy hatchback", None),     # running costs, not price
+        ("good fuel economy", None),
+        ("great resale value", None),
+        ("high value sedan", None),
+        ("luxury suv with great fuel economy", "high"),
     ])
     def test_direction(self, q, direction):
         assert parse_price_intent(q)[2] == direction
