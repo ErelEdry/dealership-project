@@ -15,7 +15,7 @@ Check off each box as the task is completed.
 - **Fix:** Remove `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` (or set them to the bge values), add `GROQ_API_KEY=`, remove `GEMINI_API_KEY`.
 - **Done when:** fresh clone → `cp .env.example .env` → `docker compose up -d` → `/health` returns 200 and `/api/search` works.
 
-### [ ] 2. Fresh setup never creates the tables
+### [x] 2. Fresh setup never creates the tables
 - **Files:** `README.md`, `docker-compose.yml`
 - **Problem:** There is no `create_all` and Alembic is never run. The Quickstart jumps straight to `python -m app.etl.pipeline`, which INSERTs into a table that doesn't exist.
 - **Fix:** Add a `docker compose exec api alembic upgrade head` step to the Quickstart, or run it automatically before uvicorn in the api service command.

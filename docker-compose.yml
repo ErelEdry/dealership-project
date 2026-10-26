@@ -32,7 +32,9 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    # Apply schema migrations first (no-op when already at head), so a fresh
+    # Postgres volume gets its tables before the API or pipeline touches them.
+    command: sh -c "alembic upgrade head && exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
   # ── 1b. Frontend (Next.js) ──────────────────────────────────
   web:
