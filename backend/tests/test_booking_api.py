@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 
 from app.api.routes import bookings
 from app.core.database import get_db
@@ -21,11 +22,13 @@ VIN = "SYNABC12345678901"
 class FakeSession:
     """Just enough of AsyncSession for the bookings route."""
 
-    def __init__(self, vehicles=None, clash=False):
+    def __init__(self, vehicles=None, clash=False, violate=None):
         self.vehicles = vehicles if vehicles is not None else {
             VIN: SimpleNamespace(vin=VIN, stock_status="available")}
         self.clash = clash
+        self.violate = violate      # constraint name the INSERT should violate
         self.added = []
+        self.committed = self.rolled_back = False
 
     async def get(self, model, key):
         return self.vehicles.get(key)
@@ -37,6 +40,10 @@ class FakeSession:
         self.added.append(obj)
 
     async def flush(self):
+        if self.violate:
+            # Shaped like asyncpg's error as SQLAlchemy wraps it.
+            raise IntegrityError("INSERT INTO bookings ...", {}, Exception(
+                f'duplicate key value violates constraint "{self.violate}"'))
         for obj in self.added:
             for col in obj.__table__.columns:
                 if getattr(obj, col.key) is None and col.default is not None:
@@ -47,10 +54,10 @@ class FakeSession:
         pass
 
     async def commit(self):
-        pass
+        self.committed = True
 
     async def rollback(self):
-        pass
+        self.rolled_back = True
 
 
 def _client(session):
@@ -112,3 +119,33 @@ def test_taken_slot_is_409():
     r = _client(FakeSession(clash=True)).post(
         "/api/bookings", json=_body(_FUTURE.isoformat()))
     assert r.status_code == 409
+
+
+# ── DB-enforced slot rule (item 5) ───────────────────────────
+def test_booking_is_committed_by_the_handler():
+    session = FakeSession()
+    r = _client(session).post("/api/bookings", json=_body(_FUTURE.isoformat()))
+    assert r.status_code == 201
+    assert session.committed
+
+
+def test_lost_race_on_unique_slot_is_409_not_500():
+    # The clash SELECT saw nothing (a concurrent request hadn't committed yet),
+    # but the partial unique index rejects the INSERT.
+    session = FakeSession(violate="uq_bookings_active_slot")
+    r = _client(session).post("/api/bookings", json=_body(_FUTURE.isoformat()))
+    assert r.status_code == 409
+    assert "taken" in r.json()["detail"]
+    assert session.rolled_back
+
+
+def test_vin_fk_violation_is_404():
+    session = FakeSession(violate="fk_bookings_vehicle_vin")
+    r = _client(session).post("/api/bookings", json=_body(_FUTURE.isoformat()))
+    assert r.status_code == 404
+
+
+def test_unrelated_integrity_error_is_not_masked():
+    session = FakeSession(violate="some_other_constraint")
+    r = _client(session).post("/api/bookings", json=_body(_FUTURE.isoformat()))
+    assert r.status_code == 500

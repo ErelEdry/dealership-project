@@ -37,7 +37,7 @@ Check off each box as the task is completed.
 - **Fix:** In the validator: naive → assume UTC, aware → convert to UTC; compare against `datetime.now(timezone.utc)`. In the frontend send `new Date(value).toISOString()`. Preferably switch to `DateTime(timezone=True)` in the model and a migration. Also replace the remaining `datetime.utcnow` in `booking.py` and the booking model (PROGRESS says this was fixed, but only in inventory).
 - **Done when:** POST with `Z`, with `+03:00`, and with no offset all return 201 or 422, never 500. A test for each case.
 
-### [ ] 5. Double-booking race condition
+### [x] 5. Double-booking race condition
 - **Files:** `backend/app/api/routes/bookings.py`, new migration
 - **Problem:** Clash check then INSERT, with no DB constraint. Two concurrent requests for the same vehicle and time both succeed. There is also no FK from `bookings.vehicle_vin` to `vehicle_inventory`.
 - **Fix:** Migration 002 with a partial unique index on `(vehicle_vin, appointment_datetime) WHERE status IN ('pending','confirmed')` plus the FK. In the handler: explicit `await db.commit()` inside a try, catch `IntegrityError` → 409. (Today the commit happens in `get_db` after the handler returns, so a constraint error there would surface as a 500.)
